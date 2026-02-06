@@ -269,3 +269,25 @@ body.dark-mode .sys-card:active { background-color: #2a3a2a; }
     border-radius: 50%; display: flex; justify-content: center; align-items: center; 
     font-weight: bold; flex-shrink: 0; 
 }
+/* --- POSVETA STIL --- */
+.dedication-box {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid rgba(0,0,0,0.1); /* Tanka linija iznad */
+}
+
+.dedication-main {
+    font-family: 'Georgia', serif; /* Ozbiljniji, lepši font */
+    font-style: italic;
+    font-size: 1rem;
+    color: var(--primary-color);
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.dedication-sub {
+    font-family: 'Georgia', serif;
+    font-size: 0.85rem;
+    opacity: 0.8;
+    color: var(--text-color);
+}
