@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SINET Audio Lekar</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4A90E2">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/3063/3063822.png">
+</head>
+<body>
+
+    <header class="app-header">
+        <div class="logo-area">
+            <h1>SINET Audio</h1>
+            <button id="unlock-audio-btn" style="font-size:0.7rem; padding:4px; background:#27AE60; border:none; color:white; border-radius:4px; margin-left:10px;">🔊 AKTIVIRAJ</button>
+        </div>
+        <button id="menu-btn" class="hamburger-btn"><span></span><span></span><span></span></button>
+    </header>
+
+    <nav id="main-nav" class="nav-overlay">
+        <div class="nav-content">
+            <h2>Meni</h2>
+            <ul>
+                <li><a href="#" onclick="UI.showSection('home')">🏠 Početna</a></li>
+                <li><a href="#" onclick="UI.showSection('catalog')">📚 Katalog</a></li>
+                <li><a href="#" onclick="UI.showSection('favorites')">⭐ Moji Favoriti</a></li>
+                <li><a href="#" onclick="UI.showSection('playlist')">🎵 Moja Playlista</a></li> <li><a href="#" onclick="UI.showSection('player')">▶ Player</a></li>
+                <hr style="border:0; border-top:1px solid #eee; margin:10px 0;">
+            
+            <li><a href="#" onclick="app.toggleHelp()">❓ Uputstvo & Saveti</a></li>    
+            <li><a href="#" onclick="UI.showSection('settings')">⚙️ Podešavanja</a></li>
+            </ul>
+            <div style="margin-top:auto; font-size:0.8rem; color:#888; text-align:center;">
+                <p>Architect: miuchins</p>
+                <p>Co-author: SINET AI</p>
+            </div>
+            <button id="close-menu-btn" class="close-btn">ZATVORI MENI</button>
+        </div>
+    </nav>
+
+    <main id="app-container">
+
+        <section id="section-home" class="active-section">
+            <div class="welcome-msg">
+                <h2>🏥 SINET Brza Pomoć</h2>
+                <p>Sistemski Preseti (Proverene Terapije)</p>
+            </div>
+            
+            <div id="pwa-install-promo" style="display:none; background:#e3f2fd; padding:15px; border-radius:10px; margin-bottom:20px; text-align:center; border:1px solid #2196f3;">
+                <p style="margin-bottom:10px; font-weight:bold; color:#0d47a1;">📲 Instalirajte aplikaciju!</p>
+                <button id="pwa-install-btn" class="ctrl-btn play" style="font-size:0.9rem; padding:10px 20px;">INSTALIRAJ</button>
+            </div>
+
+            <div id="system-presets-container"><p style="text-align:center; color:#999;">Učitavanje...</p></div>
+            
+            <div class="action-row">
+                <button class="btn-secondary" onclick="UI.showSection('catalog')">🔍 Pretraži Kompletan Katalog</button>
+            </div>
+        </section>
+
+        <section id="section-catalog" style="display:none;">
+            <h2>Katalog Simptoma</h2>
+            <div class="search-container-sticky">
+                <input type="text" id="search-input" class="search-box" placeholder="🔍 Upišite simptom (npr. Zubi)..." onkeyup="app.filterCatalog()">
+            </div>
+            <div id="catalog-accordion"></div>
+        </section>
+
+        <section id="section-favorites" style="display:none;">
+            <h2>⭐ Moji Favoriti</h2>
+            <div id="favorites-list"></div>
+            <button class="btn-secondary" onclick="UI.showSection('catalog')">➕ Dodaj novi favorit</button>
+        </section>
+
+        <section id="section-playlist" style="display:none;">
+            <h2>🎵 Moja Playlista</h2>
+            <p style="color:#666; font-size:0.9rem;">Redosled terapija:</p>
+            
+            <div id="playlist-container" style="margin:20px 0; min-height:100px;">
+                <p style="text-align:center; color:#ccc;">Lista je prazna. Dodajte simptome klikom na ➕ u editoru.</p>
+            </div>
+
+            <div class="action-row">
+                <button id="btn-play-playlist" class="ctrl-btn play" style="width:100%; display:none;" onclick="app.startPlaylist()">▶ PUSTI SVE REDOM</button>
+                <button class="btn-secondary" onclick="app.clearPlaylist()" style="border-color:#C0392B; color:#C0392B; margin-top:10px;">🗑️ Obriši Listu</button>
+            </div>
+        </section>
+
+        <section id="section-details" style="display:none;">
+            <div class="editor-header">
+                <div style="display:flex; justify-content:space-between; align-items:start;">
+                    <div style="flex:1">
+                        <h2 id="detail-title">Naziv</h2>
+                        <p id="detail-desc">Opis...</p>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <button id="fav-toggle-btn" class="fav-btn" onclick="app.toggleCurrentFavorite()">♡</button>
+                        <button class="fav-btn" onclick="app.addToPlaylistFromEditor()" style="font-size:1.5rem;" title="Dodaj u listu">➕</button>
+                    </div>
+                </div>
+                
+                <div class="timer-control">
+                    <label>Trajanje po frekvenciji: <strong id="timer-val-display">5 min</strong></label>
+                    <input type="range" id="duration-slider" class="timer-slider" min="3" max="20" value="5" step="1" oninput="app.updateDuration(this.value)">
+                </div>
+
+                <div class="action-row" style="margin-top:0;">
+                    <button class="ctrl-btn play" style="width:100%" onclick="app.startTherapyFromEditor()">▶ POKRENI SADA</button>
+                </div>
+            </div>
+
+            <h3>Lista Frekvencija</h3>
+            <ul id="editor-freq-list" class="freq-list-editor"></ul>
+            <br>
+            <button class="btn-secondary" onclick="UI.showSection('catalog')">⬅ Nazad na Katalog</button>
+        </section>
+
+        <section id="section-player" style="display:none;">
+            <div class="player-card">
+                <h3 id="current-symptom-name">Terapija</h3>
+                
+                <div class="frequency-display">
+                    <span id="current-hz">0 Hz</span>
+                    <span id="current-desc">...</span>
+                </div>
+
+                <div class="timer-container">
+                    <div class="progress-bar-bg">
+                        <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="time-labels">
+                        <span id="time-elapsed">00:00</span>
+                        <span id="time-total">00:00</span>
+                    </div>
+                </div>
+
+                <div class="controls-row">
+                    <button id="btn-stop" class="ctrl-btn stop">⏹ STOP</button>
+                    <button id="btn-play-pause" class="ctrl-btn play">⏸ PAUZA</button>
+                </div>
+                
+                <div id="playlist-status" style="margin-top:15px; font-weight:bold; color:#4A90E2; display:none;">
+                    🎵 Playlista: <span id="playlist-counter">1/3</span>
+                </div>
+
+                <div id="resume-notify" class="resume-box" style="display:none">
+                    <p>Nastaviti gde ste stali?</p>
+                    <button>DA, NASTAVI</button>
+                </div>
+            </div>
+            <button class="btn-secondary" style="margin-top:20px" onclick="UI.showSection('details')">⚙ Izmeni Postavke</button>
+        </section>
+
+        <section id="section-settings" style="display:none;">
+            <h2>⚙️ Podešavanja</h2>
+            <div class="settings-card">
+                <h3>Izgled</h3>
+                <div class="setting-row">
+                    <span>🌙 Tamna Tema</span>
+                    <label class="switch"><input type="checkbox" id="theme-toggle" onchange="app.toggleTheme(this.checked)"><span class="slider round"></span></label>
+                </div>
+                <div class="setting-row">
+                    <span>🔍 Uvećana Slova</span>
+                    <label class="switch"><input type="checkbox" id="font-toggle" onchange="app.toggleFontSize(this.checked)"><span class="slider round"></span></label>
+                </div>
+            </div>
+
+            <div class="settings-card">
+                <h3>💾 Podaci (Backup)</h3>
+                <p style="font-size:0.85rem; color:#666; margin-bottom:15px;">Sačuvajte svoje favorite i podešavanja.</p>
+                
+                <button class="btn-secondary" onclick="app.exportData()">📤 IZVEZI PODATKE (BACKUP)</button>
+                
+                <div style="margin-top:15px; border-top:1px solid #eee; padding-top:15px;">
+                    <input type="file" id="import-file" style="display:none" onchange="app.importData(this)">
+                    <button class="btn-secondary" onclick="document.getElementById('import-file').click()">📥 UVEZI PODATKE (RESTORE)</button>
+                </div>
+            </div>
+
+            <div class="settings-card" style="border-color: #e74c3c;">
+                <h3 style="color:#c0392b">Opasna Zona</h3>
+                <button class="btn-secondary" style="border-color:#c0392b; color:#c0392b" onclick="app.resetAllData()">🗑️ OBRIŠI SVE</button>
+            </div>
+            
+            <div style="margin-top:20px; font-size:0.8rem; color:#666; text-align:center">
+                <p><strong>SINET Audio v3.1</strong></p>
+                <p>Architect: miuchins & SINET AI</p>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="js/db/indexed-db.js"></script>
+    <script type="module" src="js/app.js"></script>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('service-worker.js').then(reg => console.log('SW OK')).catch(err => console.log('SW Fail', err));
+            });
+        }
+        let deferredPrompt;
+        const installBox = document.getElementById('pwa-install-promo');
+        const installBtn = document.getElementById('pwa-install-btn');
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault(); deferredPrompt = e; installBox.style.display = 'block';
+        });
+        if(installBtn) installBtn.addEventListener('click', (e) => {
+            installBox.style.display = 'none'; deferredPrompt.prompt();
+        });
+    </script>
+
+<div id="help-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>📖 Kako koristiti SINET Audio</h3>
+                <button class="close-modal" onclick="app.toggleHelp()">✖</button>
+            </div>
+            <div class="modal-body">
+                <div class="help-step">
+                    <span class="step-num">1</span>
+                    <p><strong>Pronađite Problem:</strong><br>Koristite "Brzu Pomoć" na početnoj strani ili pretražite Katalog za specifične simptome.</p>
+                </div>
+                <div class="help-step">
+                    <span class="step-num">2</span>
+                    <p><strong>Pustite Terapiju:</strong><br>Kliknite ▶. Preporučujemo slušalice za binauralne tonove, ali nije obavezno za Rife frekvencije.</p>
+                </div>
+                <div class="help-step">
+                    <span class="step-num">3</span>
+                    <p><strong>Pijte Vodu:</strong><br>Zvuk stimuliše detoksikaciju. Obavezno popijte čašu vode pre i posle terapije.</p>
+                </div>
+                <div class="help-step">
+                    <span class="step-num">4</span>
+                    <p><strong>Offline Rad:</strong><br>Aplikacija radi i bez interneta ako je instalirate na telefon.</p>
+                </div>
+                
+                <hr>
+                <p style="font-size:0.8rem; color:#666;">
+                    <strong>Napomena:</strong> SINET Audio nije zamena za lekara. Koristite na sopstvenu odgovornost.<br>
+                    Verzija: 3.1 | Build: 2026.02
+                </p>
+            </div>
+            <button class="ctrl-btn play" style="width:100%; margin-top:10px;" onclick="app.toggleHelp()">RAZUMEM</button>
+        </div>
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,15 @@
+ODRICANJE OD ODGOVORNOSTI (DISCLAIMER)
+
+1. SVRHA APLIKACIJE:
+SINET Audio Lekar je eksperimentalni softverski alat namenjen istraživanju zvuka, relaksaciji i ličnom unapređenju blagostanja (wellness).
+
+2. NIJE MEDICINSKI UREĐAJ:
+Ovaj softver NIJE zamena za profesionalni medicinski savet, dijagnozu ili lečenje. Nikada nemojte zanemariti savet lekara ili odlagati traženje stručne pomoći zbog informacija iz ovog softvera.
+
+3. OGRANIČENJE ODGOVORNOSTI:
+Autori (Michin Svetozar - miuchins i SINET AI) ne preuzimaju nikakvu odgovornost za direktne, indirektne ili posledične štete nastale korišćenjem ovog softvera. Korisnik koristi frekvencije isključivo na sopstvenu odgovornost.
+
+4. KONTRAINDIKACIJE:
+Osobama sa pejsmejkerima, istorijom epilepsije ili trudnicama se strogo savetuje da se konsultuju sa lekarom pre upotrebe binauralnih tonova ili Rife frekvencija.
+
+Korišćenjem aplikacije SINET Audio Lekar, potvrđujete da prihvatate ove uslove.
