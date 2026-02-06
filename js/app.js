@@ -1,9 +1,8 @@
 /*
     ====== SINET PROJECT INFO ======
     Project: SINET Audio Lekar
-    File: js/app.js (v4.4 - FINAL FIX: AUTO-JUMP)
+    File: js/app.js (v4.5 - FULL FUNCTIONALITY + UPDATE MECHANISM)
     Author: miuchins | Co-author: SINET AI
-    Status: FULL VERSION (Not shortened)
 */
 
 import { SinetAudioEngine } from './audio/audio-engine.js';
@@ -18,7 +17,7 @@ window.UI = {
 
 class App {
     constructor() {
-        // ODMAH DEKLARIŠEMO APP DA BUDE DOSTUPNA
+        // GLOBALNA REFERENCA
         window.app = this;
 
         this.audio = new SinetAudioEngine();
@@ -39,7 +38,7 @@ class App {
     }
 
     async init() {
-        console.log("SINET App v4.4: Initializing...");
+        console.log("SINET App v4.5: Initializing...");
         
         // 1. Učitaj UI elemente
         this.cacheUI();
@@ -113,7 +112,7 @@ class App {
         };
     }
 
-    /* --- FUNKCIJE ZA HELP I WAKE LOCK --- */
+    /* --- HELP --- */
     toggleHelp() {
         const modal = document.getElementById('help-modal');
         const nav = document.getElementById('main-nav');
@@ -220,10 +219,10 @@ class App {
         this.audio.play();
         this.requestWakeLock();
         
-        // --- HITAN FIX: PREBACIVANJE NA PLAYER I SKROLOVANJE NA VRH ---
-        this.showScreen('player');
+        // --- AUTO JUMP NA PLAYER ---
+        this.showScreen('player'); 
         window.scrollTo(0, 0); 
-        // -------------------------------------------------------------
+        // ---------------------------
         
         this.updatePlayButton(true);
     }
@@ -247,14 +246,11 @@ class App {
     onFreqChange(freqObj) {
         this.ui.player.hz.innerText = freqObj.value + " Hz";
         this.ui.player.desc.innerText = freqObj.svrha || "";
-        this.saveStateToDB(); // Čuvamo stanje
+        this.saveStateToDB();
     }
     
-    // --- FUNKCIJA ZA ČUVANJE STANJA (ZAŠTIĆENA) ---
     async saveStateToDB() {
         if (!this.db || !this.selectedItem) return;
-        
-        // PROVERA: Da li Audio Context postoji? Ako ne, ne radi ništa (da ne pukne)
         if (!this.audio.audioContext) return; 
 
         try {
@@ -264,7 +260,7 @@ class App {
                 elapsedInCurrent: this.audio.audioContext.currentTime - this.audio.startTime
             });
         } catch (e) { 
-            console.warn("Save state failed", e); // Samo upozorenje, ne ruši app
+            console.warn("Save state failed", e); 
         }
     }
 
@@ -281,7 +277,7 @@ class App {
         }
     }
 
-    /* --- UI RENDER (PUN KOD - BEZ SKRAĆIVANJA) --- */
+    /* --- UI RENDER --- */
     renderSystemPresets() {
         const container = this.ui.systemPresetsContainer; 
         if (!container) return;
@@ -388,7 +384,6 @@ class App {
         this.renderCatalogUI(r, true);
     }
 
-    /* --- EDITOR & DETAILS (SA OPISIMA) --- */
     async openDetails(id) {
         const item = this.catalog.getItemById(id); 
         if (!item) return;
@@ -420,13 +415,12 @@ class App {
             li.className = "freq-item";
             const isChecked = freq.enabled !== false ? "checked" : "";
             
-            // VRATIO SAM OPIS FREKVENCIJE (SVRHA)
             li.innerHTML = `
                 <div style="display:flex; align-items:center; gap:10px; width:100%;">
                     <input type="checkbox" class="freq-check" ${isChecked} onchange="app.toggleFreq(${index}, this.checked)">
                     <div style="display:flex; flex-direction:column;">
                         <span class="freq-hz" style="font-weight:bold; font-size:1.1rem;">${freq.value} Hz</span>
-                        <span class="freq-desc" style="font-size:0.85rem; color:#666;">${freq.svrha || 'Standardna frekvencija'}</span>
+                        <span class="freq-desc" style="font-size:0.85rem; color:#666;">${freq.svrha || 'Osnovna frekvencija'}</span>
                     </div>
                 </div>
                 <button class="btn-preview" onclick="app.previewFreq(${freq.value})" style="padding:5px 10px; font-size:0.8rem;">🔊</button>
@@ -461,10 +455,10 @@ class App {
         if(this.ui.player.playlistStatus) 
             this.ui.player.playlistStatus.style.display = 'none';
         
-        // --- HITAN FIX: PREBACIVANJE NA PLAYER I SKROLOVANJE NA VRH ---
+        // --- AUTO JUMP NA PLAYER ---
         this.showScreen('player'); 
         window.scrollTo(0, 0); 
-        // -------------------------------------------------------------
+        // ---------------------------
         
         this.updatePlayButton(true); 
         
@@ -525,7 +519,7 @@ class App {
         return `${m}:${sc < 10 ? '0' + sc : sc}`; 
     }
 
-    /* --- FAVORITES --- */
+    /* --- FAVORITES & DATA --- */
     async renderFavoritesUI() { 
         const container = this.ui.favList; 
         if (!container || !this.db) return;
@@ -563,7 +557,6 @@ class App {
         } 
     }
 
-    /* --- BACKUP & IMPORT --- */
     async exportData() { 
         if(!this.db) return; 
         const f = await this.db.getFavorites(); 
@@ -591,7 +584,36 @@ class App {
         r.readAsText(f); 
     }
 
-    /* --- SETTINGS --- */
+    // --- NOVA FUNKCIJA ZA PRISILNO AŽURIRANJE ---
+    async forceUpdateApp() {
+        // 1. Pitaj za backup
+        if (confirm("⚠️ Pre ažuriranja, da li želite da napravite BACKUP svojih favorita?\n\nKliknite OK za Backup, ili Cancel da nastavite bez backupa.")) {
+            await this.exportData();
+        }
+
+        // 2. Potvrda brisanja
+        if (confirm("Sada ćemo osvežiti aplikaciju. Ekran će se ponovo učitati.\n\nDa li ste spremni?")) {
+            // Brisanje Service Workera (ovo je ključno za update)
+            if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                for (let registration of registrations) {
+                    await registration.unregister();
+                }
+            }
+            // Brisanje cache-a (opciono, ali dobro za svaki slučaj)
+            if ('caches' in window) {
+                const keys = await caches.keys();
+                for (let key of keys) {
+                    await caches.delete(key);
+                }
+            }
+            
+            alert("Aplikacija je resetovana! Učitavam novu verziju...");
+            window.location.reload(true); // Hard reload
+        }
+    }
+    // ---------------------------------------------
+
     toggleTheme(v) { 
         document.body.classList.toggle('dark-mode', v); 
         localStorage.setItem('sinet_theme', v ? 'dark' : 'light'); 
@@ -625,16 +647,16 @@ class App {
     }
     
     async checkResume() { 
-        if(!this.db) return; 
+        if(!this.db)return; 
         try {
-            const s = await this.db.getPlayerState(); 
+            const s=await this.db.getPlayerState(); 
             if(s && s.activePresetId){ 
                 this.ui.player.resumeBox.style.display = 'block'; 
                 this.ui.player.resumeBox.querySelector('button').onclick = () => { 
                     const i = this.catalog.getItemById(s.activePresetId); 
                     if(i){ 
                         this.ui.player.title.innerText = i.simptom; 
-                        this.audio.loadSequence(i.frekvencije, (i.trajanjePoFrekvencijiMin||5)*60, s.currentFreqIndex, s.elapsedInCurrent); 
+                        this.audio.loadSequence(i.frekvencije,(i.trajanjePoFrekvencijiMin||5)*60, s.currentFreqIndex, s.elapsedInCurrent); 
                         this.showScreen('player'); 
                         this.audio.play(); 
                         this.requestWakeLock(); 
