@@ -1,8 +1,9 @@
 /*
     ====== SINET PROJECT INFO ======
     Project: SINET Audio Lekar
-    File: js/app.js (v4.1 - FINAL COMPLETE)
+    File: js/app.js (v4.4 - FINAL FIX: AUTO-JUMP)
     Author: miuchins | Co-author: SINET AI
+    Status: FULL VERSION (Not shortened)
 */
 
 import { SinetAudioEngine } from './audio/audio-engine.js';
@@ -38,7 +39,7 @@ class App {
     }
 
     async init() {
-        console.log("SINET App v4.1: Initializing...");
+        console.log("SINET App v4.4: Initializing...");
         
         // 1. Učitaj UI elemente
         this.cacheUI();
@@ -218,7 +219,12 @@ class App {
         this.audio.loadSequence(activeFreqs, durationSec);
         this.audio.play();
         this.requestWakeLock();
+        
+        // --- HITAN FIX: PREBACIVANJE NA PLAYER I SKROLOVANJE NA VRH ---
         this.showScreen('player');
+        window.scrollTo(0, 0); 
+        // -------------------------------------------------------------
+        
         this.updatePlayButton(true);
     }
 
@@ -244,11 +250,11 @@ class App {
         this.saveStateToDB(); // Čuvamo stanje
     }
     
-    // --- ISPRAVLJENA FUNKCIJA (ZAŠTIĆENA OD RUŠENJA) ---
+    // --- FUNKCIJA ZA ČUVANJE STANJA (ZAŠTIĆENA) ---
     async saveStateToDB() {
         if (!this.db || !this.selectedItem) return;
         
-        // KLJUČNA ZAŠTITA: Ako audio engine nije spreman, ne radi ništa
+        // PROVERA: Da li Audio Context postoji? Ako ne, ne radi ništa (da ne pukne)
         if (!this.audio.audioContext) return; 
 
         try {
@@ -258,7 +264,7 @@ class App {
                 elapsedInCurrent: this.audio.audioContext.currentTime - this.audio.startTime
             });
         } catch (e) { 
-            console.warn("Save state failed", e); // Samo zabeleži, ne ruši app
+            console.warn("Save state failed", e); // Samo upozorenje, ne ruši app
         }
     }
 
@@ -275,7 +281,7 @@ class App {
         }
     }
 
-    /* --- UI RENDER (PUN KOD) --- */
+    /* --- UI RENDER (PUN KOD - BEZ SKRAĆIVANJA) --- */
     renderSystemPresets() {
         const container = this.ui.systemPresetsContainer; 
         if (!container) return;
@@ -420,7 +426,7 @@ class App {
                     <input type="checkbox" class="freq-check" ${isChecked} onchange="app.toggleFreq(${index}, this.checked)">
                     <div style="display:flex; flex-direction:column;">
                         <span class="freq-hz" style="font-weight:bold; font-size:1.1rem;">${freq.value} Hz</span>
-                        <span class="freq-desc" style="font-size:0.85rem; color:#666;">${freq.svrha || 'Osnovna frekvencija'}</span>
+                        <span class="freq-desc" style="font-size:0.85rem; color:#666;">${freq.svrha || 'Standardna frekvencija'}</span>
                     </div>
                 </div>
                 <button class="btn-preview" onclick="app.previewFreq(${freq.value})" style="padding:5px 10px; font-size:0.8rem;">🔊</button>
@@ -455,7 +461,11 @@ class App {
         if(this.ui.player.playlistStatus) 
             this.ui.player.playlistStatus.style.display = 'none';
         
+        // --- HITAN FIX: PREBACIVANJE NA PLAYER I SKROLOVANJE NA VRH ---
         this.showScreen('player'); 
+        window.scrollTo(0, 0); 
+        // -------------------------------------------------------------
+        
         this.updatePlayButton(true); 
         
         if(this.db) this.db.clearPlayerState();
@@ -515,7 +525,7 @@ class App {
         return `${m}:${sc < 10 ? '0' + sc : sc}`; 
     }
 
-    /* --- FAVORITES & SETTINGS --- */
+    /* --- FAVORITES --- */
     async renderFavoritesUI() { 
         const container = this.ui.favList; 
         if (!container || !this.db) return;
@@ -553,6 +563,7 @@ class App {
         } 
     }
 
+    /* --- BACKUP & IMPORT --- */
     async exportData() { 
         if(!this.db) return; 
         const f = await this.db.getFavorites(); 
@@ -580,6 +591,7 @@ class App {
         r.readAsText(f); 
     }
 
+    /* --- SETTINGS --- */
     toggleTheme(v) { 
         document.body.classList.toggle('dark-mode', v); 
         localStorage.setItem('sinet_theme', v ? 'dark' : 'light'); 
