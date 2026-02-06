@@ -15,11 +15,19 @@
     <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/3063/3063822.png">
 
     <style>
-        /* Specijalni stilovi za Posvetu i Help */
+        /* --- STILOVI ZA RESPONSIVE HELP I POSVETU --- */
+        
         .dedication-box { margin-top:15px; padding-top:15px; border-top:1px solid rgba(0,0,0,0.1); }
         .dedication-main { font-family:'Georgia',serif; font-style:italic; font-size:1rem; color:#4A90E2; margin-bottom:5px; font-weight:bold; }
         .dedication-sub { font-family:'Georgia',serif; font-size:0.85rem; opacity:0.8; color:#333; }
         
+        /* OVO REŠAVA SKROLOVANJE HELPA NA ANDROIDU */
+        .modal-content {
+            max-height: 85vh;       /* Ne dozvoljava da bude viši od 85% ekrana */
+            overflow-y: auto;       /* Omogućava skrolovanje unutar prozora */
+            -webkit-overflow-scrolling: touch; /* Glatko skrolovanje za iOS */
+        }
+
         .help-section-title { font-weight:bold; color:#4A90E2; margin-top:15px; border-bottom:1px solid #eee; padding-bottom:5px; font-size:1.1rem; }
         .help-list { list-style: disc; padding-left: 20px; margin-top: 10px; }
         .help-list li { margin-bottom: 8px; font-size: 0.95rem; line-height: 1.4; }
@@ -189,7 +197,7 @@
                 <button class="btn-secondary" style="border-color:#c0392b; color:#c0392b" onclick="app.resetAllData()">🗑️ OBRIŠI SVE</button>
             </div>
             <div style="margin-top:20px; font-size:0.8rem; color:#666; text-align:center">
-                <p><strong>SINET Audio v4.1</strong></p>
+                <p><strong>SINET Audio v4.4</strong></p>
                 <p>Architect: miuchins & SINET AI</p>
             </div>
         </section>
@@ -211,9 +219,11 @@
         const installBtn = document.getElementById('pwa-install-btn');
         const closeBtn = document.getElementById('close-install-btn');
 
-        if (window.matchMedia('(display-mode: standalone)').matches) {
-            installBox.style.display = 'none';
-        } else {
+        // LOGIKA: PROVERI DA LI JE KORISNIK RANIJE KLIKNUO "X"
+        const isDismissed = localStorage.getItem('pwa_install_dismissed') === 'true';
+
+        // Ako nije instalirano I nije prethodno zatvoreno, prikaži
+        if (!window.matchMedia('(display-mode: standalone)').matches && !isDismissed) {
             window.addEventListener('beforeinstallprompt', (e) => {
                 e.preventDefault();
                 deferredPrompt = e;
@@ -226,13 +236,15 @@
             deferredPrompt.prompt();
         });
 
+        // KADA KLIKNE "X", ZAPAMTI TO ZAUVEK
         if(closeBtn) closeBtn.addEventListener('click', (e) => {
             installBox.style.display = 'none';
+            localStorage.setItem('pwa_install_dismissed', 'true');
         });
     </script>
 
     <div id="help-modal" class="modal-overlay" style="display:none;">
-        <div class="modal-content" style="max-height: 80vh; overflow-y: auto;">
+        <div class="modal-content">
             <div class="modal-header">
                 <h3>📖 Uputstvo za Korišćenje</h3>
                 <button class="close-modal" onclick="app.toggleHelp()">✖</button>
