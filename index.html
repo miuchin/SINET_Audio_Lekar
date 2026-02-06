@@ -15,22 +15,39 @@
     <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/3063/3063822.png">
 
     <style>
-        /* --- STILOVI ZA RESPONSIVE HELP I POSVETU --- */
-        
-        .dedication-box { margin-top:15px; padding-top:15px; border-top:1px solid rgba(0,0,0,0.1); }
-        .dedication-main { font-family:'Georgia',serif; font-style:italic; font-size:1rem; color:#4A90E2; margin-bottom:5px; font-weight:bold; }
-        .dedication-sub { font-family:'Georgia',serif; font-size:0.85rem; opacity:0.8; color:#333; }
-        
-        /* OVO REŠAVA SKROLOVANJE HELPA NA ANDROIDU */
-        .modal-content {
-            max-height: 85vh;       /* Ne dozvoljava da bude viši od 85% ekrana */
-            overflow-y: auto;       /* Omogućava skrolovanje unutar prozora */
-            -webkit-overflow-scrolling: touch; /* Glatko skrolovanje za iOS */
+        /* Specijalni stilovi za Posvetu i Help */
+        .dedication-box { 
+            margin-top: 10px; 
+            padding: 10px; 
+            border-top: 1px solid rgba(0,0,0,0.1);
+            background-color: rgba(255,255,255,0.5); /* Blaga pozadina da se istakne */
+            border-radius: 8px;
         }
-
-        .help-section-title { font-weight:bold; color:#4A90E2; margin-top:15px; border-bottom:1px solid #eee; padding-bottom:5px; font-size:1.1rem; }
+        .dedication-main { font-family:'Georgia',serif; font-style:italic; font-size:1.1rem; color:#4A90E2; margin-bottom:5px; font-weight:bold; }
+        .dedication-sub { font-family:'Georgia',serif; font-size:0.9rem; opacity:0.9; color:#333; }
+        
+        /* RESPONSIVE HELP */
+        .modal-content {
+            max-height: 85vh;       
+            overflow-y: auto;       
+            -webkit-overflow-scrolling: touch; 
+        }
+        .help-section-title { 
+            font-weight:bold; 
+            color:#4A90E2; 
+            margin-top:20px; 
+            border-bottom:2px solid #eee; 
+            padding-bottom:5px; 
+            font-size:1.1rem; 
+            text-transform: uppercase;
+        }
         .help-list { list-style: disc; padding-left: 20px; margin-top: 10px; }
-        .help-list li { margin-bottom: 8px; font-size: 0.95rem; line-height: 1.4; }
+        .help-list li { margin-bottom: 10px; font-size: 0.95rem; line-height: 1.5; text-align: left;}
+        .step-num { 
+            display:inline-block; background:#4A90E2; color:white; 
+            width:20px; height:20px; border-radius:50%; text-align:center; 
+            font-size:0.8rem; margin-right:5px; 
+        }
     </style>
 </head>
 <body>
@@ -52,7 +69,7 @@
                 <li><a href="#" onclick="UI.showSection('favorites')">⭐ Moji Favoriti</a></li>
                 <li><a href="#" onclick="UI.showSection('playlist')">🎵 Moja Playlista</a></li>
                 <hr style="border:0; border-top:1px solid #eee; margin:10px 0;">
-                <li><a href="#" onclick="app.toggleHelp()">❓ DETALJNO UPUTSTVO</a></li>    
+                <li><a href="#" onclick="app.toggleHelp()">📖 KORISNIČKO UPUTSTVO</a></li>    
                 <li><a href="#" onclick="UI.showSection('settings')">⚙️ Podešavanja</a></li>
             </ul>
             <div style="margin-top:auto; font-size:0.8rem; color:#888; text-align:center;">
@@ -185,19 +202,27 @@
             </div>
             <div class="settings-card">
                 <h3>💾 Podaci (Backup)</h3>
-                <p style="font-size:0.85rem; color:#666; margin-bottom:15px;">Sačuvajte svoje favorite i podešavanja.</p>
+                <p style="font-size:0.85rem; color:#666; margin-bottom:15px;">Sačuvajte svoje favorite pre ažuriranja.</p>
                 <button class="btn-secondary" onclick="app.exportData()">📤 IZVEZI PODATKE (BACKUP)</button>
                 <div style="margin-top:15px; border-top:1px solid #eee; padding-top:15px;">
                     <input type="file" id="import-file" style="display:none" onchange="app.importData(this)">
                     <button class="btn-secondary" onclick="document.getElementById('import-file').click()">📥 UVEZI PODATKE (RESTORE)</button>
                 </div>
             </div>
+            
+            <div class="settings-card" style="border-color: #27AE60; background-color: #eafaf1;">
+                <h3 style="color:#27AE60">🔄 Ažuriranje</h3>
+                <p style="font-size:0.85rem; color:#666;">Ako aplikacija ne prikazuje novu verziju:</p>
+                <button class="btn-secondary" style="border-color:#27AE60; color:#27AE60; font-weight:bold;" onclick="app.forceUpdateApp()">🚀 OSVEŽI / POPRAVI VERZIJU</button>
+            </div>
+
             <div class="settings-card" style="border-color: #e74c3c;">
                 <h3 style="color:#c0392b">Opasna Zona</h3>
                 <button class="btn-secondary" style="border-color:#c0392b; color:#c0392b" onclick="app.resetAllData()">🗑️ OBRIŠI SVE</button>
             </div>
+            
             <div style="margin-top:20px; font-size:0.8rem; color:#666; text-align:center">
-                <p><strong>SINET Audio v4.4</strong></p>
+                <p><strong>SINET Audio v4.5</strong></p>
                 <p>Architect: miuchins & SINET AI</p>
             </div>
         </section>
@@ -219,10 +244,9 @@
         const installBtn = document.getElementById('pwa-install-btn');
         const closeBtn = document.getElementById('close-install-btn');
 
-        // LOGIKA: PROVERI DA LI JE KORISNIK RANIJE KLIKNUO "X"
+        // LOGIKA: Ako je korisnik već zatvorio baner, ne prikazuj ga opet
         const isDismissed = localStorage.getItem('pwa_install_dismissed') === 'true';
 
-        // Ako nije instalirano I nije prethodno zatvoreno, prikaži
         if (!window.matchMedia('(display-mode: standalone)').matches && !isDismissed) {
             window.addEventListener('beforeinstallprompt', (e) => {
                 e.preventDefault();
@@ -236,9 +260,9 @@
             deferredPrompt.prompt();
         });
 
-        // KADA KLIKNE "X", ZAPAMTI TO ZAUVEK
         if(closeBtn) closeBtn.addEventListener('click', (e) => {
             installBox.style.display = 'none';
+            // ZAPAMTI ZAUVEK DA JE ZATVORENO
             localStorage.setItem('pwa_install_dismissed', 'true');
         });
     </script>
@@ -246,38 +270,70 @@
     <div id="help-modal" class="modal-overlay" style="display:none;">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>📖 Uputstvo za Korišćenje</h3>
+                <h3>📖 Korisničko Uputstvo</h3>
                 <button class="close-modal" onclick="app.toggleHelp()">✖</button>
             </div>
             <div class="modal-body">
                 
-                <div class="help-section-title">1. KAKO POČETI?</div>
+                <p>Dobrodošli u SINET Audio Lekar. Ovo uputstvo će vam pomoći da maksimalno iskoristite aplikaciju za vaše zdravlje.</p>
+
+                <div class="help-section-title">1. INSTALACIJA (Važno!)</div>
+                <p>SINET Audio je <strong>PWA (Web Aplikacija)</strong>. To znači da se ne skida sa Play Store-a, već direktno sa sajta.</p>
                 <ul class="help-list">
-                    <li><strong>Brza Pomoć:</strong> Na početnoj strani su najvažniji programi (Zubi, Glava, Leđa). Samo kliknite na karticu da otvorite terapiju.</li>
-                    <li><strong>Katalog:</strong> Ako ne vidite svoj problem, kliknite na dugme "Pretraži Katalog" i upišite simptom (npr. "Sinusi" ili "Stres").</li>
-                    <li><strong>Start:</strong> Kada uđete u detalje terapije, pritisnite veliko zeleno dugme ▶ POKRENI TERAPIJU.</li>
+                    <li><strong>Android (Chrome):</strong> Kliknite na tri tačkice gore desno -> "Install App" ili "Dodaj na početni ekran".</li>
+                    <li><strong>iPhone (Safari):</strong> Kliknite na dugme "Share" (kockica sa strelicom) -> "Add to Home Screen".</li>
+                    <li><strong>Računar:</strong> Kliknite na ikonicu (+) u adresnoj traci.</li>
                 </ul>
 
-                <div class="help-section-title">2. SAVETI ZA ZDRAVLJE</div>
+                <div class="help-section-title">2. POČETNA STRANA (Brza Pomoć)</div>
                 <ul class="help-list">
-                    <li>💧 <strong>Voda:</strong> Obavezno popijte čašu vode pre i posle terapije. Zvuk pokreće detoksikaciju tela i voda je neophodna da se toksini izbace.</li>
-                    <li>🎧 <strong>Slušalice:</strong> Za programe za mozak (Brainwave) i nerve su obavezne. Za telo (Rife frekvencije) možete koristiti i zvučnik telefona (naslonite telefon na bolno mesto).</li>
-                    <li>⏳ <strong>Trajanje:</strong> Preporučujemo 3 do 5 minuta po jednoj frekvenciji (ukupna terapija oko 15-20 min).</li>
+                    <li>Ovde se nalaze <strong>Sistemski Preseti</strong>. To su terapije koje smo mi pripremili.</li>
+                    <li>Grupe su podeljene logično: <strong>Prva Pomoć, Autoimune, Kosti...</strong></li>
+                    <li>Kliknite na karticu (npr. "Zubobolja") da otvorite terapiju.</li>
                 </ul>
 
-                <div class="help-section-title">3. NAPREDNE OPCIJE</div>
+                <div class="help-section-title">3. KATALOG I PRETRAGA</div>
                 <ul class="help-list">
-                    <li><strong>Playlista:</strong> Možete sastaviti svoju listu terapija (npr. Zubi + Glava + San). Kliknite na dugme ➕ u editoru da dodate terapiju u listu.</li>
-                    <li><strong>Offline Rad:</strong> Instalirajte aplikaciju klikom na dugme "Instaliraj" i ona će raditi bez interneta zauvek.</li>
+                    <li>Kliknite na dugme <strong>"Katalog"</strong> u meniju.</li>
+                    <li>Upišite u polje za pretragu šta vas muči (npr. "Sinusi", "Stres").</li>
+                    <li>Aplikacija će filtrirati listu.</li>
+                </ul>
+
+                <div class="help-section-title">4. KAKO PUSTITI TERAPIJU?</div>
+                <ul class="help-list">
+                    <li>Možete isključiti neke frekvencije na kućicu ako želite.</li>
+                    <li>Podesite <strong>Trajanje</strong> (klizačem). Preporuka je <strong>3 do 5 minuta</strong> po frekvenciji.</li>
+                    <li>Kliknite na veliko zeleno dugme <strong>▶ POKRENI TERAPIJU</strong>.</li>
+                    <li><strong>Savet:</strong> Ekran će ostati upaljen dok traje terapija.</li>
+                </ul>
+
+                <div class="help-section-title">5. PLAYLISTA (Moja Lista)</div>
+                <ul class="help-list">
+                    <li>Otvorite terapiju i kliknite na dugme <strong>➕</strong> (dodaj).</li>
+                    <li>Idite u Meni -> <strong>🎵 Moja Playlista</strong>.</li>
+                    <li>Kliknite <strong>▶ PUSTI SVE REDOM</strong>.</li>
+                </ul>
+
+                <div class="help-section-title">6. BACKUP (Čuvanje)</div>
+                <ul class="help-list">
+                    <li>Idite u <strong>Podešavanja</strong>.</li>
+                    <li>Kliknite <strong>📤 IZVEZI PODATKE</strong> da sačuvate fajl.</li>
+                    <li>Kasnije možete uraditi <strong>📥 UVEZI PODATKE</strong>.</li>
+                </ul>
+
+                <div class="help-section-title">7. SAVETI ZA ZDRAVLJE</div>
+                <ul class="help-list">
+                    <li>💧 <strong>Voda:</strong> Pijte čašu vode pre i posle terapije. Zvuk ubrzava izbacivanje toksina.</li>
+                    <li>🎧 <strong>Slušalice:</strong> Za mozak (Brainwave) su obavezne. Za telo (Rife) možete koristiti zvučnik telefona naslonjen na telo.</li>
                 </ul>
 
                 <hr>
                 <p style="font-size:0.8rem; text-align:center; color:#666;">
-                    <strong>Napomena:</strong> SINET Audio je pomoćno sredstvo za relaksaciju i eksperimentalnu upotrebu.<br>Nije zamena za zvaničnu medicinu i lekara.<br>
+                    SINET Audio nije zamena za lekara.<br>
                     <em>Made with ❤️ by miuchins</em>
                 </p>
             </div>
-            <button class="ctrl-btn play" style="width:100%; margin-top:10px;" onclick="app.toggleHelp()">RAZUMEM, HVALA</button>
+            <button class="ctrl-btn play" style="width:100%; margin-top:10px;" onclick="app.toggleHelp()">RAZUMEM, ZATVORI</button>
         </div>
     </div>
 
