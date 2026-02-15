@@ -1,690 +1,2943 @@
 /*
-    ====== SINET PROJECT INFO ======
-    Project: SINET Audio Lekar
-    File: js/app.js (v4.5 - FULL FUNCTIONALITY + UPDATE MECHANISM)
-    Author: miuchins | Co-author: SINET AI
+  SINET Audio Lekar — App Core
+  File: js/app.js
+  Version: 15.4.8.2 (iOS background hardening)
+  Author: miuchins | Co-author: SINET AI
 */
 
-import { SinetAudioEngine } from './audio/audio-engine.js';
-import { CatalogLoader } from './catalog/catalog-loader.js';
+// Cache-bust audio engine updates (NO-SW mode relies on browser cache)
+import { SinetAudioEngine } from './audio/audio-engine.js?v=15.4.8.2';
+import { normalizeCatalogPayload } from './catalog/stl-adapter.js';
 
-// 1. GLOBALNI UI HELPER
-window.UI = {
-    showSection: (sectionId) => {
-        if (window.app) window.app.showScreen(sectionId);
-    }
-};
+const SINET_APP_VERSION = "15.4.8.2";
 
-class App {
-    constructor() {
-        // GLOBALNA REFERENCA
-        window.app = this;
-
-        this.audio = new SinetAudioEngine();
-        this.catalog = new CatalogLoader();
-        this.db = window.db; 
-
-        this.selectedItem = null;
-        this.customDuration = 5;
-        
-        // --- PLAYLIST STATE ---
-        this.playlist = [];
-        this.isPlaylistActive = false;
-        this.currentPlaylistIndex = 0;
-        this.wakeLock = null;
-
-        // Cache UI (Prazno na početku, puni se u init)
-        this.ui = {};
-    }
-
-    async init() {
-        console.log("SINET App v4.5: Initializing...");
-        
-        // 1. Učitaj UI elemente
-        this.cacheUI();
-
-        // 2. Učitaj podešavanja
-        this.loadSettings();
-        
-        // 3. Poveži Bazu
-        try { 
-            if (this.db) await this.db.init(); 
-        } catch (e) { 
-            console.error("DB Error", e); 
-        }
-        
-        // 4. Učitaj Katalog
-        await this.catalog.load();
-        
-        this.renderSystemPresets(); 
-        this.renderCatalogUI(this.catalog.items, false); 
-
-        // 5. Audio Događaji (Arrow funkcije za stabilnost)
-        this.audio.onTick = (s) => this.onAudioTick(s);
-        this.audio.onFreqChange = (f) => this.onFreqChange(f);
-        this.audio.onComplete = () => this.onAudioComplete();
-
-        // 6. Proveri da li treba nastaviti sesiju
-        await this.checkResume();
-        
-        this.setupEventListeners();
-        console.log("SINET App: Ready.");
-    }
-
-    cacheUI() {
-        this.ui = {
-            screens: {
-                home: document.getElementById('section-home'),
-                catalog: document.getElementById('section-catalog'),
-                favorites: document.getElementById('section-favorites'),
-                playlist: document.getElementById('section-playlist'),
-                details: document.getElementById('section-details'),
-                player: document.getElementById('section-player'),
-                settings: document.getElementById('section-settings')
-            },
-            player: {
-                title: document.getElementById('current-symptom-name'),
-                hz: document.getElementById('current-hz'),
-                desc: document.getElementById('current-desc'),
-                fill: document.getElementById('progress-fill'),
-                timeNow: document.getElementById('time-elapsed'),
-                timeTotal: document.getElementById('time-total'),
-                btnPlay: document.getElementById('btn-play-pause'),
-                btnStop: document.getElementById('btn-stop'),
-                resumeBox: document.getElementById('resume-notify'),
-                playlistStatus: document.getElementById('playlist-status'),
-                playlistCounter: document.getElementById('playlist-counter')
-            },
-            editor: {
-                title: document.getElementById('detail-title'),
-                desc: document.getElementById('detail-desc'),
-                list: document.getElementById('editor-freq-list'),
-                slider: document.getElementById('duration-slider'),
-                valDisplay: document.getElementById('timer-val-display'),
-                favBtn: document.getElementById('fav-toggle-btn')
-            },
-            catalogAccordion: document.getElementById('catalog-accordion'),
-            favList: document.getElementById('favorites-list'),
-            searchInput: document.getElementById('search-input'),
-            systemPresetsContainer: document.getElementById('system-presets-container'),
-            playlistContainer: document.getElementById('playlist-container'),
-            btnPlayPlaylist: document.getElementById('btn-play-playlist')
-        };
-    }
-
-    /* --- HELP --- */
-    toggleHelp() {
-        const modal = document.getElementById('help-modal');
-        const nav = document.getElementById('main-nav');
-        if (modal) {
-            if (modal.style.display === 'none') {
-                modal.style.display = 'flex';
-                if(nav) nav.classList.remove('open');
-            } else {
-                modal.style.display = 'none';
-            }
-        }
-    }
-
-    async requestWakeLock() {
-        try { 
-            if ('wakeLock' in navigator) { 
-                this.wakeLock = await navigator.wakeLock.request('screen'); 
-            } 
-        } catch (e) { console.warn("WakeLock failed", e); }
-    }
-    
-    async releaseWakeLock() {
-        if (this.wakeLock !== null) { 
-            await this.wakeLock.release(); 
-            this.wakeLock = null; 
-        }
-    }
-
-    /* --- PLAYLIST LOGIC --- */
-    addToPlaylistFromEditor() {
-        if (!this.selectedItem) return;
-        const itemCopy = JSON.parse(JSON.stringify(this.selectedItem));
-        itemCopy.userDuration = this.customDuration;
-        this.playlist.push(itemCopy);
-        alert(`Dodato u playlistu: ${itemCopy.simptom}`);
-        this.renderPlaylistUI();
-    }
-
-    renderPlaylistUI() {
-        const container = this.ui.playlistContainer;
-        if (!container) return;
-        
-        if (this.playlist.length === 0) {
-            container.innerHTML = "<p style='text-align:center; padding:20px; color:#999'>Lista je prazna. Dodajte simptome iz Kataloga klikom na ➕.</p>";
-            if(this.ui.btnPlayPlaylist) this.ui.btnPlayPlaylist.style.display = 'none';
-            return;
-        }
-        
-        if(this.ui.btnPlayPlaylist) this.ui.btnPlayPlaylist.style.display = 'block';
-        
-        let html = '<ul class="catalog-list-style">';
-        this.playlist.forEach((item, index) => {
-            html += `<li>
-                <div class="cat-icon" style="font-size:1rem; color:#888;">${index + 1}.</div>
-                <div class="cat-info">
-                    <strong>${item.simptom}</strong>
-                    <small>${item.userDuration} min po frekv.</small>
-                </div>
-                <div class="cat-action" onclick="app.removeFromPlaylist(${index})" style="color:#C0392B;">✖</div>
-            </li>`;
-        });
-        html += '</ul>';
-        container.innerHTML = html;
-    }
-
-    removeFromPlaylist(index) { 
-        this.playlist.splice(index, 1); 
-        this.renderPlaylistUI(); 
-    }
-    
-    clearPlaylist() { 
-        if(confirm("Da li ste sigurni da želite da obrišete listu?")) { 
-            this.playlist = []; 
-            this.renderPlaylistUI(); 
-        } 
-    }
-
-    startPlaylist() {
-        if (this.playlist.length === 0) return;
-        this.isPlaylistActive = true;
-        this.currentPlaylistIndex = 0;
-        this.playPlaylistItem(0);
-    }
-
-    playPlaylistItem(index) {
-        if (index >= this.playlist.length) { 
-            this.onPlaylistFinished(); 
-            return; 
-        }
-        
-        const item = this.playlist[index];
-        this.currentPlaylistIndex = index;
-        
-        this.ui.player.title.innerText = `[${index+1}/${this.playlist.length}] ${item.simptom}`;
-        if(this.ui.player.playlistStatus) {
-            this.ui.player.playlistStatus.style.display = 'block';
-            this.ui.player.playlistCounter.innerText = `${index+1} od ${this.playlist.length}`;
-        }
-        
-        const durationSec = (item.userDuration || 5) * 60;
-        const activeFreqs = item.frekvencije.filter(f => f.enabled !== false);
-        
-        this.audio.loadSequence(activeFreqs, durationSec);
-        this.audio.play();
-        this.requestWakeLock();
-        
-        // --- AUTO JUMP NA PLAYER ---
-        this.showScreen('player'); 
-        window.scrollTo(0, 0); 
-        // ---------------------------
-        
-        this.updatePlayButton(true);
-    }
-
-    onPlaylistFinished() {
-        this.isPlaylistActive = false;
-        if(this.ui.player.playlistStatus) this.ui.player.playlistStatus.style.display = 'none';
-        this.releaseWakeLock();
-        alert("Playlista završena!");
-        this.showScreen('playlist');
-    }
-
-    /* --- AUDIO HANDLERS --- */
-    onAudioTick(stats) {
-        const pct = (stats.elapsedInFreq / stats.durationPerFreq) * 100;
-        this.ui.player.fill.style.width = pct + "%";
-        this.ui.player.timeNow.innerText = this.formatTime(stats.elapsedInFreq);
-        this.ui.player.timeTotal.innerText = this.formatTime(stats.durationPerFreq);
-    }
-    
-    onFreqChange(freqObj) {
-        this.ui.player.hz.innerText = freqObj.value + " Hz";
-        this.ui.player.desc.innerText = freqObj.svrha || "";
-        this.saveStateToDB();
-    }
-    
-    async saveStateToDB() {
-        if (!this.db || !this.selectedItem) return;
-        if (!this.audio.audioContext) return; 
-
-        try {
-            await this.db.savePlayerState({
-                activePresetId: this.selectedItem.id,
-                currentFreqIndex: this.audio.currentIndex,
-                elapsedInCurrent: this.audio.audioContext.currentTime - this.audio.startTime
-            });
-        } catch (e) { 
-            console.warn("Save state failed", e); 
-        }
-    }
-
-    onAudioComplete() {
-        if (this.isPlaylistActive) {
-            setTimeout(() => { 
-                this.playPlaylistItem(this.currentPlaylistIndex + 1); 
-            }, 2000);
-        } else {
-            this.updatePlayButton(false); 
-            this.releaseWakeLock(); 
-            alert("Terapija završena."); 
-            this.stopPlayer();
-        }
-    }
-
-    /* --- UI RENDER --- */
-    renderSystemPresets() {
-        const container = this.ui.systemPresetsContainer; 
-        if (!container) return;
-        
-        const sysItems = this.catalog.items.filter(item => item.id && item.id.startsWith('sys-'));
-        
-        if (sysItems.length === 0) { 
-            container.innerHTML = "<p style='padding:20px; text-align:center'>Nema sistemskih preseta.</p>"; 
-            return; 
-        }
-        
-        const groups = {};
-        sysItems.forEach(item => {
-            const oblast = item.oblast || "Razno"; 
-            if (!groups[oblast]) groups[oblast] = []; 
-            groups[oblast].push(item);
-        });
-        
-        let html = "";
-        Object.keys(groups).sort().forEach(oblast => {
-            html += `<h3 class="sys-group-title">${oblast}</h3><div class="sys-group-grid">`;
-            groups[oblast].forEach(item => {
-                let icon = "⚡"; 
-                if(oblast.includes("Bol")) icon="💊"; 
-                if(oblast.includes("Autoimune")) icon="🛡️"; 
-                if(oblast.includes("Varenje")) icon="🍏";
-                if(oblast.includes("Srce")) icon="❤️";
-                if(oblast.includes("Nervi")) icon="🧠";
-                
-                html += `<div class="sys-card" onclick="app.openDetails('${item.id}')">
-                    <div class="sys-icon">${icon}</div>
-                    <div class="sys-content">
-                        <div class="sys-title">${item.simptom}</div>
-                        <div class="sys-desc">${item.opis||''}</div>
-                    </div>
-                    <div class="sys-play-icon">▶</div>
-                </div>`;
-            });
-            html += `</div>`;
-        });
-        container.innerHTML = html;
-    }
-
-    renderCatalogUI(items, expandAll = false) {
-        const container = this.ui.catalogAccordion;
-        if (!container) return;
-        
-        if(items.length === 0) {
-            container.innerHTML = "<p style='text-align:center; padding:20px;'>Nema rezultata.</p>";
-            return;
-        }
-
-        const groups = {};
-        items.forEach(item => { 
-            const oblast = item.oblast || "Ostalo"; 
-            if (!groups[oblast]) groups[oblast] = []; 
-            groups[oblast].push(item); 
-        });
-        
-        let html = "";
-        Object.keys(groups).sort().forEach((oblast) => {
-            const groupItems = groups[oblast];
-            const showClass = expandAll ? "show" : ""; 
-            const activeClass = expandAll ? "active" : "";
-            
-            html += `<div class="accordion-group">
-                <button class="accordion-header ${activeClass}" onclick="app.toggleAccordion(this)">
-                    ${oblast} <span style="font-size:0.8rem; opacity:0.6; margin-left:10px">(${groupItems.length})</span>
-                </button>
-                <div class="accordion-content ${showClass}">
-                    <ul class="catalog-list-style">`;
-            
-            groupItems.forEach(item => {
-                const shield = item.id && item.id.startsWith('sys-') ? "🛡️ " : "";
-                html += `<li onclick="window.app.openDetails('${item.id}')">
-                    <div class="cat-icon">📄</div>
-                    <div class="cat-info">
-                        <strong>${shield}${item.simptom}</strong>
-                        <small>${item.frekvencije.length} frekvencija</small>
-                    </div>
-                    <div class="cat-action">✏️</div>
-                </li>`;
-            });
-            html += `</ul></div></div>`;
-        });
-        container.innerHTML = html;
-    }
-
-    toggleAccordion(btn) { 
-        btn.classList.toggle("active"); 
-        btn.nextElementSibling.classList.toggle("show"); 
-    }
-
-    filterCatalog() {
-        const q = this.ui.searchInput.value.toLowerCase();
-        if(!q) { 
-            this.renderCatalogUI(this.catalog.items, false); 
-            return; 
-        }
-        const r = this.catalog.items.filter(i => 
-            (i.simptom && i.simptom.toLowerCase().includes(q)) || 
-            (i.oblast && i.oblast.toLowerCase().includes(q))
-        );
-        this.renderCatalogUI(r, true);
-    }
-
-    async openDetails(id) {
-        const item = this.catalog.getItemById(id); 
-        if (!item) return;
-        
-        this.selectedItem = JSON.parse(JSON.stringify(item));
-        this.customDuration = item.trajanjePoFrekvencijiMin || 5;
-        
-        this.ui.editor.title.innerText = this.selectedItem.simptom;
-        this.ui.editor.desc.innerText = this.selectedItem.opis || "";
-        this.ui.editor.slider.value = this.customDuration;
-        
-        this.updateDuration(this.customDuration);
-        
-        if (this.db) { 
-            const isFav = await this.db.isFavorite(item.id); 
-            this.updateFavButtonState(isFav); 
-        }
-        
-        this.renderFrequencyEditor();
-        this.showScreen('details');
-    }
-
-    renderFrequencyEditor() {
-        const list = this.ui.editor.list; 
-        list.innerHTML = "";
-        
-        this.selectedItem.frekvencije.forEach((freq, index) => {
-            const li = document.createElement('li'); 
-            li.className = "freq-item";
-            const isChecked = freq.enabled !== false ? "checked" : "";
-            
-            li.innerHTML = `
-                <div style="display:flex; align-items:center; gap:10px; width:100%;">
-                    <input type="checkbox" class="freq-check" ${isChecked} onchange="app.toggleFreq(${index}, this.checked)">
-                    <div style="display:flex; flex-direction:column;">
-                        <span class="freq-hz" style="font-weight:bold; font-size:1.1rem;">${freq.value} Hz</span>
-                        <span class="freq-desc" style="font-size:0.85rem; color:#666;">${freq.svrha || 'Osnovna frekvencija'}</span>
-                    </div>
-                </div>
-                <button class="btn-preview" onclick="app.previewFreq(${freq.value})" style="padding:5px 10px; font-size:0.8rem;">🔊</button>
-            `;
-            list.appendChild(li);
-        });
-    }
-
-    toggleFreq(idx, val) { 
-        if(this.selectedItem.frekvencije[idx]) 
-            this.selectedItem.frekvencije[idx].enabled = val; 
-    }
-    
-    updateDuration(val) { 
-        this.customDuration = parseInt(val); 
-        this.ui.editor.valDisplay.innerText = val + " min"; 
-    }
-    
-    startTherapyFromEditor() {
-        const active = this.selectedItem.frekvencije.filter(f => f.enabled !== false);
-        if(active.length === 0){
-            alert("Morate izabrati bar jednu frekvenciju!");
-            return;
-        }
-        this.audio.loadSequence(active, this.customDuration * 60);
-        this.audio.play(); 
-        this.requestWakeLock();
-        
-        this.ui.player.title.innerText = this.selectedItem.simptom;
-        this.isPlaylistActive = false;
-        
-        if(this.ui.player.playlistStatus) 
-            this.ui.player.playlistStatus.style.display = 'none';
-        
-        // --- AUTO JUMP NA PLAYER ---
-        this.showScreen('player'); 
-        window.scrollTo(0, 0); 
-        // ---------------------------
-        
-        this.updatePlayButton(true); 
-        
-        if(this.db) this.db.clearPlayerState();
-    }
-
-    /* --- UTILS --- */
-    togglePlayPause() { 
-        if(this.audio.isPlaying){
-            this.audio.pause();
-            this.updatePlayButton(false);
-            this.releaseWakeLock();
-        } else {
-            this.audio.play();
-            this.updatePlayButton(true);
-            this.requestWakeLock();
-        } 
-    }
-    
-    stopPlayer() { 
-        this.audio.stop(); 
-        this.updatePlayButton(false); 
-        this.releaseWakeLock(); 
-        this.showScreen('details'); 
-    }
-    
-    updatePlayButton(isPlaying) { 
-        const btn = this.ui.player.btnPlay; 
-        if(btn) {
-            btn.innerText = isPlaying ? "⏸ PAUZA" : "▶ NASTAVI"; 
-            btn.className = isPlaying ? "ctrl-btn stop" : "ctrl-btn play";
-        } 
-    }
-    
-    previewFreq(hz) { 
-        this.audio.init(); 
-        this.audio.playFrequency(hz); 
-        setTimeout(() => this.audio.stopOscillator(), 2000); 
-    }
-    
-    showScreen(name) { 
-        Object.values(this.ui.screens).forEach(el => {
-            if(el) el.style.display = 'none';
-        }); 
-        
-        const t = this.ui.screens[name]; 
-        if(t) t.style.display = 'block'; 
-        
-        if(name === 'favorites') this.renderFavoritesUI(); 
-        if(name === 'playlist') this.renderPlaylistUI(); 
-        
-        document.getElementById('main-nav').classList.remove('open'); 
-    }
-    
-    formatTime(s) { 
-        const m = Math.floor(s / 60); 
-        const sc = Math.floor(s % 60); 
-        return `${m}:${sc < 10 ? '0' + sc : sc}`; 
-    }
-
-    /* --- FAVORITES & DATA --- */
-    async renderFavoritesUI() { 
-        const container = this.ui.favList; 
-        if (!container || !this.db) return;
-        
-        const favData = await this.db.getFavorites();
-        if (!favData || favData.length === 0) { 
-            container.innerHTML = "<p style='padding:20px; text-align:center'>Nema favorita.</p>"; 
-            return; 
-        }
-        
-        let html = '<ul class="catalog-list-style">';
-        favData.forEach(f => {
-            const item = this.catalog.getItemById(f.id);
-            if (item) html += `<li onclick="app.openDetails('${item.id}')">
-                <div class="cat-icon">⭐</div>
-                <strong>${item.simptom}</strong>
-            </li>`;
-        });
-        html += '</ul>'; 
-        container.innerHTML = html; 
-    }
-    
-    updateFavButtonState(isFav) { 
-        const btn = this.ui.editor.favBtn; 
-        if(btn) { 
-            btn.innerHTML = isFav ? "❤️" : "♡"; 
-            btn.classList.toggle('active', isFav); 
-        } 
-    }
-    
-    async toggleCurrentFavorite() { 
-        if(this.selectedItem && this.db) { 
-            const s = await this.db.toggleFavorite(this.selectedItem.id); 
-            this.updateFavButtonState(s); 
-        } 
-    }
-
-    async exportData() { 
-        if(!this.db) return; 
-        const f = await this.db.getFavorites(); 
-        const d = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({favorites: f})); 
-        const a = document.createElement('a'); 
-        a.href = d; 
-        a.download = "sinet_backup.json"; 
-        document.body.appendChild(a); 
-        a.click(); 
-        a.remove(); 
-    }
-    
-    importData(el) { 
-        const f = el.files[0]; 
-        if(!f) return; 
-        const r = new FileReader(); 
-        r.onload = async(e) => { 
-            try {
-                const d = JSON.parse(e.target.result); 
-                if(d.favorites) for(const fav of d.favorites) await this.db.toggleFavorite(fav.id); 
-                alert("Uspešno uvezeno!"); 
-                this.renderFavoritesUI(); 
-            } catch(e) { alert("Neispravan fajl."); }
-        }; 
-        r.readAsText(f); 
-    }
-
-    // --- NOVA FUNKCIJA ZA PRISILNO AŽURIRANJE ---
-    async forceUpdateApp() {
-        // 1. Pitaj za backup
-        if (confirm("⚠️ Pre ažuriranja, da li želite da napravite BACKUP svojih favorita?\n\nKliknite OK za Backup, ili Cancel da nastavite bez backupa.")) {
-            await this.exportData();
-        }
-
-        // 2. Potvrda brisanja
-        if (confirm("Sada ćemo osvežiti aplikaciju. Ekran će se ponovo učitati.\n\nDa li ste spremni?")) {
-            // Brisanje Service Workera (ovo je ključno za update)
-            if ('serviceWorker' in navigator) {
-                const registrations = await navigator.serviceWorker.getRegistrations();
-                for (let registration of registrations) {
-                    await registration.unregister();
-                }
-            }
-            // Brisanje cache-a (opciono, ali dobro za svaki slučaj)
-            if ('caches' in window) {
-                const keys = await caches.keys();
-                for (let key of keys) {
-                    await caches.delete(key);
-                }
-            }
-            
-            alert("Aplikacija je resetovana! Učitavam novu verziju...");
-            window.location.reload(true); // Hard reload
-        }
-    }
-    // ---------------------------------------------
-
-    toggleTheme(v) { 
-        document.body.classList.toggle('dark-mode', v); 
-        localStorage.setItem('sinet_theme', v ? 'dark' : 'light'); 
-    }
-    
-    toggleFontSize(v) { 
-        document.body.classList.toggle('font-large', v); 
-        localStorage.setItem('sinet_font', v ? 'large' : 'normal'); 
-    }
-    
-    loadSettings() { 
-        if(localStorage.getItem('sinet_theme') === 'dark') {
-            document.body.classList.add('dark-mode');
-            const t = document.getElementById('theme-toggle');
-            if(t) t.checked = true;
-        } 
-        if(localStorage.getItem('sinet_font') === 'large') {
-            document.body.classList.add('font-large');
-            const f = document.getElementById('font-toggle');
-            if(f) f.checked = true;
-        } 
-    }
-    
-    async resetAllData() { 
-        if(confirm("Da li ste sigurni? Ovo briše SVE favorite.")) { 
-            indexedDB.deleteDatabase('SINET_Audio_DB').onsuccess = () => {
-                localStorage.clear();
-                location.reload();
-            } 
-        } 
-    }
-    
-    async checkResume() { 
-        if(!this.db)return; 
-        try {
-            const s=await this.db.getPlayerState(); 
-            if(s && s.activePresetId){ 
-                this.ui.player.resumeBox.style.display = 'block'; 
-                this.ui.player.resumeBox.querySelector('button').onclick = () => { 
-                    const i = this.catalog.getItemById(s.activePresetId); 
-                    if(i){ 
-                        this.ui.player.title.innerText = i.simptom; 
-                        this.audio.loadSequence(i.frekvencije,(i.trajanjePoFrekvencijiMin||5)*60, s.currentFreqIndex, s.elapsedInCurrent); 
-                        this.showScreen('player'); 
-                        this.audio.play(); 
-                        this.requestWakeLock(); 
-                        this.ui.player.resumeBox.style.display = 'none'; 
-                        this.updatePlayButton(true); 
-                    } 
-                }; 
-            }
-        } catch(e) { console.log("No resume state"); } 
-    }
-
-    setupEventListeners() {
-        if(this.ui.player.btnPlay) this.ui.player.btnPlay.onclick = () => this.togglePlayPause();
-        if(this.ui.player.btnStop) this.ui.player.btnStop.onclick = () => this.stopPlayer();
-        
-        const unlockBtn = document.getElementById('unlock-audio-btn');
-        if(unlockBtn) unlockBtn.onclick = () => { this.audio.init(); alert("Zvuk aktiviran!"); };
-        
-        const nav = document.getElementById('main-nav');
-        const menuBtn = document.getElementById('menu-btn');
-        const closeMenuBtn = document.getElementById('close-menu-btn');
-        
-        if(menuBtn) menuBtn.onclick = () => nav.classList.add('open');
-        if(closeMenuBtn) closeMenuBtn.onclick = () => nav.classList.remove('open');
-        
-        window.app = this; 
-    }
+/** iOS detection (iPhone/iPad/iPod + iPadOS masquerading as Mac) */
+function isIOSDevice() {
+  const ua = navigator.userAgent || "";
+  const isAppleMobile = /iP(hone|od|ad)/.test(ua);
+  const isIpadOS13Plus = (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  return isAppleMobile || isIpadOS13Plus;
 }
 
-const myApp = new App();
-window.addEventListener('DOMContentLoaded', () => { myApp.init(); });
+// 0.25s silent WAV (base64) — used to keep audio session alive on iOS when screen is off.
+const SILENT_WAV_DATA_URI = "data:audio/wav;base64,UklGRkZWAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YSJWAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
+class IosAudioSessionKeeper {
+  constructor(enabled) {
+    this.enabled = !!enabled;
+    this.audioEl = null;
+    this.started = false;
+  }
+
+  _ensureEl() {
+    if (this.audioEl) return this.audioEl;
+    const el = document.createElement("audio");
+    el.src = SILENT_WAV_DATA_URI;
+    el.loop = true;
+    el.preload = "auto";
+    el.playsInline = true;
+    el.setAttribute("playsinline", "");
+    // Keep very low volume (not muted) — some iOS setups stop muted audio in background.
+    el.volume = 0.0001;
+    el.muted = false;
+    el.style.display = "none";
+    document.body.appendChild(el);
+    this.audioEl = el;
+    return el;
+  }
+
+  start() {
+    if (!this.enabled) return;
+    const el = this._ensureEl();
+    // Must be triggered by a user gesture (we call this from Play click).
+    try {
+      const p = el.play();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+      this.started = true;
+    } catch(_) {}
+  }
+
+  stop() {
+    if (!this.audioEl) return;
+    try {
+      this.audioEl.pause();
+      this.audioEl.currentTime = 0;
+    } catch(_) {}
+    this.started = false;
+  }
+}
+
+
+class App {
+  constructor() {
+    window.app = this;
+
+    this.audio = new SinetAudioEngine();
+
+    // iOS background hardening
+    this._isIOS = isIOSDevice();
+    this._iosKeeper = new IosAudioSessionKeeper(this._isIOS);
+    this._iosHintShown = false;
+
+    // iOS: optional MediaStream -> <audio> output (best-effort)
+    this._iosMediaOutEl = null;
+
+    // Media Session (best-effort, varies by browser/iOS)
+    this._mediaSessionReady = false;
+
+    // Heartbeat that tries to keep AudioContext resumed while playing (best-effort)
+    this._ctxHeartbeat = null;
+    this.db = window.db;
+
+    this.catalogItems = [];
+    this.playlist = [];
+    this.isPlaylistActive = false;
+    this.currentPlaylistIndex = 0;
+
+    this.protocolTotalTimeSec = 0;
+    this.protocolBaseElapsedSec = 0;
+
+    this.selectedItem = null;
+    this.currentModalId = null;
+
+    this._lastStats = null;
+
+    this.ui = {};
+
+    this.acupressureRegistry = null;
+    this._modalItem = null;
+
+    // v15.3 — Senior presets + user symptoms + overrides
+    this.seniorPresets = null;
+    this.seniorShowAll = false;
+    this.activeOblast = null;
+    this.lastCatalogViewItems = null;
+    this.lastCatalogViewTitle = "";
+
+    this.userSymptoms = [];
+    this.overrides = {};
+
+    // Nav helpers (elder-friendly)
+    this.currentPageId = 'home';
+    this.navStack = [];
+    this._toastTimer = null;
+
+    // v15.4.7 — cached favorite IDs
+    this._favSet = new Set();
+  }
+
+  async init() {
+    console.log('SINET v15.4.7.5 Init');
+    this.cacheUI();
+
+    // iOS / background / lock-screen best-effort helpers
+    this._setupMediaSession();
+    this._bindBackgroundRecovery();
+
+    // ✅ ensure DB ready BEFORE any favorites / playlist read
+    if (this.db) await this.db.init();
+
+
+    // v15.4.7 — preload favorites set for fast UI toggles
+    await this.refreshFavoritesSet();
+    await this.loadCatalogData();
+    await this.loadPlaylistFromDB();
+
+    // optional offline registry (images, licensing)
+    await this.loadAcupressureRegistry();
+
+    // v15.3 — load senior presets + user symptoms + overrides (never break init)
+    await this.loadSeniorPresets();
+    await this.loadUserSymptoms();
+    await this.loadOverrides();
+    this.applyUserDataToCatalog();
+
+    this.renderSystemPresets();
+    this.showCatalogHome();
+    this.renderPlaylistUI();
+
+    // Engine hooks
+    this.audio.onTick = (stats) => this.onAudioTick(stats);
+    this.audio.onComplete = () => this.onAudioComplete();
+    this.audio.onSkip = (freqObj, stats) => this.onAudioSkip(freqObj, stats);
+    this.audio.onFreqChange = (freqObj, stats) => this.onFreqChange(freqObj, stats);
+
+    await this.renderResumeHint();
+    this.log("APP", "Init", "OK");
+  }
+
+  // iOS/Safari: explicit user-gesture unlock (keeps UI simple: tap once, then play)
+  unlockAudio() {
+    try { this.audio.init(); } catch(_) {}
+    try { this._ensurePlaybackSession(); } catch(_) {}
+    try {
+      const b = document.getElementById("unlock-audio-btn");
+      if (b) b.style.display = "none";
+    } catch(_) {}
+    try { this.showToast("🔊 Audio aktiviran. Sada možeš ▶ POKRENI."); } catch(_) { try { alert("Audio aktiviran!"); } catch(__) {} }
+  }
+
+  _ensureIosMediaOutEl() {
+    if (this._iosMediaOutEl) return this._iosMediaOutEl;
+    const el = document.createElement("audio");
+    el.preload = "auto";
+    el.playsInline = true;
+    el.setAttribute("playsinline", "");
+    el.volume = 1.0;
+    el.muted = false;
+    el.style.display = "none";
+    document.body.appendChild(el);
+    this._iosMediaOutEl = el;
+    return el;
+  }
+
+
+  cacheUI() {
+    this.ui = {
+      screens: {
+        home: document.getElementById('page-home'),
+        catalog: document.getElementById('page-catalog'),
+        playlist: document.getElementById('page-playlist'),
+        favorites: document.getElementById('page-favorites'),
+        mysymptoms: document.getElementById('page-mysymptoms'),
+        ai: document.getElementById('page-ai'),
+        help: document.getElementById('page-help'),
+        settings: document.getElementById('page-settings')
+      },
+      catalogOblastGrid: document.getElementById('catalog-oblast-grid'),
+      catalogList: document.getElementById('catalog-list'),
+      userSymptomsList: document.getElementById('user-symptoms-list'),
+      userSymptomForm: document.getElementById('user-symptom-form'),
+      aiPrompt: document.getElementById('ai_prompt'),
+      playerDock: document.getElementById('player-dock'),
+      pTitle: document.getElementById('p-title'),
+      pTimerNow: document.getElementById('p-timer-now'),
+      pTimerElapsed: document.getElementById('p-timer-elapsed'),
+      pTimerTotal: document.getElementById('p-timer-total'),
+      pProtocolTimer: document.getElementById('p-protocol-timer'),
+      pStatus: document.getElementById('p-status'),
+      btnPlayPause: document.getElementById('btn-pp'),
+      btnNowList: document.getElementById('btn-nowlist'),
+      nowPlayingPanel: document.getElementById('nowplaying-panel'),
+      nowPlayingList: document.getElementById('nowplaying-list'),
+      pActiveHz: document.getElementById('p-active-hz'),
+      pActiveName: document.getElementById('p-active-name'),
+      pActiveDesc: document.getElementById('p-active-desc'),
+      pActiveSrc: document.getElementById('p-active-src'),
+      pActiveDur: document.getElementById('p-active-dur')
+    };
+  }
+
+  async log(cat, action, details="") {
+    try { await this.db?.logAction?.(cat, action, details); } catch(e) {}
+  }
+
+  /* ===================== DATA ===================== */
+  
+async loadCatalogData() {
+  const loader = document.getElementById('loader');
+
+  // Prefer canonical STL if present, fallback to runtime catalog
+  const candidates = [
+    'data/SINET_STL.json',
+    'data/SINET_CATALOG.json'
+  ];
+
+  let lastErr = null;
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`${url} nije pronađen (${res.status})`);
+      const raw = await res.json();
+
+      const norm = normalizeCatalogPayload(raw);
+      this.catalogItems = Array.isArray(norm.items) ? norm.items : [];
+
+      // v15.3 — keep canonical core list (without user additions/overrides)
+      this.catalogCoreItems = this.catalogItems.slice();
+
+      if (loader) loader.style.display = 'none';
+      this.log("DATA", "Catalog Loaded", `${this.catalogItems.length} • ${url}`);
+      return;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  // All failed
+  if (loader) loader.innerText = "GREŠKA: " + (lastErr?.message || "Catalog load failed");
+  console.error(lastErr);
+  this.log("ERROR", "Catalog Load Failed", lastErr?.message || "");
+}
+
+
+async loadAcupressureRegistry() {
+  // Optional offline registry (images/licensing). Must NEVER break init.
+  const url = 'data/media/acupressure/registry.json';
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`${url} nije pronađen (${res.status})`);
+    this.acupressureRegistry = await res.json();
+    this.log("DATA", "Acupressure Registry Loaded", url);
+  } catch (e) {
+    this.acupressureRegistry = null;
+    console.warn("Acupressure registry not loaded:", e?.message || e);
+    this.log("DATA", "Acupressure Registry Missing", e?.message || "unknown");
+  }
+}
+
+  /* ===================== NAV ===================== */
+  nav(pageId, opts = {}) {
+    const prev = this.currentPageId || 'home';
+    const replace = opts.replace === true;
+    const stack = opts.stack !== false;
+
+    if (!replace && stack && prev && prev !== pageId) {
+      this.navStack.push(prev);
+      if (this.navStack.length > 40) this.navStack.shift();
+    }
+
+    this.currentPageId = pageId;
+
+    Object.values(this.ui.screens).forEach(s => s?.classList?.remove('active'));
+    document.getElementById('page-' + pageId)?.classList?.add('active');
+
+    const ov = document.getElementById('nav-overlay');
+    if (ov) ov.style.display='none';
+
+    this.log("UI", "Nav", pageId);
+
+    // Page-specific refresh
+    if (pageId === 'favorites') this.updateFavorites();
+    if (pageId === 'catalog') this.showCatalogHome();
+    if (pageId === 'playlist') this.renderPlaylistUI();
+    if (pageId === 'mysymptoms') this.renderUserSymptomsUI();
+    if (pageId === 'ai') this.prepareAIUI();
+  }
+
+  goBack() {
+    const prev = this.navStack.pop();
+    this.nav(prev || 'home', { replace: true, stack: false });
+  }
+
+  showToast(msg, opts = {}) {
+    const el = document.getElementById('toast') || this._createToast();
+    if (!el) return;
+
+    const actionLabel = (opts.actionLabel || '').toString();
+    const actionNav = (opts.actionNav || '').toString();
+
+    const action2Label = (opts.action2Label || '').toString();
+    const action2Onclick = (opts.action2Onclick || '').toString();
+
+    el.innerHTML = `
+      <div class="toast-msg">${this.escapeHtml(String(msg||''))}</div>
+      ${actionLabel && actionNav ? `<button class="toast-btn" onclick="nav('${actionNav}'); window.app && window.app.hideToast && window.app.hideToast()">${this.escapeHtml(actionLabel)}</button>` : ''}
+      ${action2Label && action2Onclick ? `<button class="toast-btn" onclick="${action2Onclick}; window.app && window.app.hideToast && window.app.hideToast()">${this.escapeHtml(action2Label)}</button>` : ''}
+      <button class="toast-x" onclick="window.app && window.app.hideToast && window.app.hideToast()" aria-label="Zatvori">✕</button>
+    `;
+
+    el.style.display = 'flex';
+
+    if (this._toastTimer) clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => this.hideToast(), Number(opts.timeoutMs) || 3800);
+  }
+
+  hideToast() {
+    const el = document.getElementById('toast');
+    if (el) el.style.display = 'none';
+    if (this._toastTimer) {
+      clearTimeout(this._toastTimer);
+      this._toastTimer = null;
+    }
+  }
+
+  _createToast() {
+    const d = document.createElement('div');
+    d.id = 'toast';
+    d.className = 'toast';
+    d.style.display = 'none';
+    document.body.appendChild(d);
+    return d;
+  }
+
+
+  /* ===================== PLAYLIST (DB) ===================== */
+  async loadPlaylistFromDB() {
+    try {
+      this.playlist = await this.db?.getMainPlaylist?.() || [];
+      if (!Array.isArray(this.playlist)) this.playlist = [];
+      this.log("DATA", "Playlist Loaded", String(this.playlist.length));
+    } catch(e) {
+      this.playlist = [];
+      this.log("ERROR", "Playlist Load Failed", e.message);
+    }
+  }
+
+  async savePlaylistToDB() {
+    try { await this.db?.saveMainPlaylist?.(this.playlist); } catch(e) {}
+  }
+
+  /* ===================== AUDIO UI ===================== */
+
+  onFreqChange(freqObj, stats) {
+    this._lastStats = stats;
+    this._updateMediaSessionMetadata(freqObj, stats);
+
+    const hz = Number(freqObj?.value ?? freqObj?.hz) || 0;
+    const idx = (stats?.currentIndex ?? 0) + 1;
+    const total = stats?.totalItems ?? 0;
+
+    const isSub = hz > 0 && hz < 50;
+    const carrierNote = isSub ? ` <span class="muted">(noseći 200 Hz)</span>` : "";
+
+        const naziv = (freqObj?.naziv || "").toString().trim();
+    const opis = (freqObj?.opis || "").toString().trim();
+    const funkcija = (freqObj?.funkcija || freqObj?.svrha || "").toString().trim();
+
+    const shortLabel = (funkcija || naziv || "").toString().trim();
+    // Backward compatibility: some runtime lists only have svrha/desc
+    const legacyLabel = (freqObj?.svrha || freqObj?.desc || "").toString().trim();
+    const desc = (shortLabel || legacyLabel || "").toString().trim();
+
+    const srcObj = (freqObj?.izvor_obj || freqObj?.izvor || freqObj?.src || null);
+    const srcText = this._srcToText(srcObj);
+
+    const recMinRaw = (freqObj?.trajanje_min ?? freqObj?.preporuceno_min ?? freqObj?.preporucenoMin ?? null);
+    const recMin = (recMinRaw === null || recMinRaw === undefined || recMinRaw === "") ? null : Math.max(0, Number(recMinRaw) || 0);
+
+    const currentMin = (Number(stats?.durationPerFreq) || 0) / 60;
+    const fmtMin = (v) => {
+      const n = Math.max(0, Number(v) || 0);
+      if (!n) return "0";
+      // show .5 if needed
+      const r = Math.round(n * 2) / 2;
+      return (r % 1 === 0) ? String(Math.round(r)) : String(r);
+    };
+
+    // === Player active meta (STL) ===
+    if (this.ui.pActiveHz) this.ui.pActiveHz.innerText = `${hz} Hz${isSub ? " (noseći 200 Hz)" : ""}`;
+    if (this.ui.pActiveName) this.ui.pActiveName.innerText = desc ? `— ${desc}` : "";
+    if (this.ui.pActiveDesc) this.ui.pActiveDesc.textContent = opis ? `ℹ️ ${opis}` : "ℹ️ Opis frekvencije nije popunjen (još).";
+
+    // Source as link if possible
+    let srcHtml = "";
+    if (srcObj && typeof srcObj === "object") {
+      const url = (srcObj.url || srcObj.URL || srcObj.link || "").toString().trim();
+      if (url) srcHtml = `📎 Izvor: <a href="${this.escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${this.escapeHtml(url)}</a>`;
+    }
+    if (!srcHtml && srcText) {
+      const looksUrl = /^https?:\/\//i.test(srcText);
+      srcHtml = looksUrl
+        ? `📎 Izvor: <a href="${this.escapeAttr(srcText)}" target="_blank" rel="noopener noreferrer">${this.escapeHtml(srcText)}</a>`
+        : `📎 Izvor: ${this.escapeHtml(srcText)}`;
+    }
+    if (this.ui.pActiveSrc) this.ui.pActiveSrc.innerHTML = srcHtml || "📎 Izvor: —";
+
+    const durLine = recMin && recMin > 0
+      ? `⏱ Preporučeno: ${fmtMin(recMin)} min • Trenutno: ${fmtMin(currentMin)} min`
+      : `⏱ Trenutno: ${fmtMin(currentMin)} min • Preporučeno: nije popunjeno`;
+    if (this.ui.pActiveDur) this.ui.pActiveDur.textContent = durLine;
+
+    const nextObj = (this.audio.currentSequence || [])[stats.currentIndex + 1];
+    const nextHz = nextObj ? (Number(nextObj.value ?? nextObj.hz) || 0) : null;
+    const nextIsSub = nextHz !== null && nextHz > 0 && nextHz < 50;
+
+    const nextDesc = nextObj ? (nextObj?.svrha || nextObj?.funkcija || nextObj?.desc || nextObj?.naziv || "").toString().trim() : "";
+    const nextLine = nextHz !== null
+      ? `⏭ Sledeće: <b>${nextHz} Hz</b>${nextIsSub ? ` <span class="muted">(noseći 200 Hz)</span>` : ""}${nextDesc ? ` <span class="muted">— ${this.escapeHtml(nextDesc)}</span>` : ""}`
+      : `⏭ Sledeće: kraj`;
+
+    // Alternative = naredne 2-3 frekvencije posle sledeće
+    const alt = [];
+    const seq = this.audio.currentSequence || [];
+    for (let j = (stats?.currentIndex ?? 0) + 2; j < Math.min(seq.length, (stats?.currentIndex ?? 0) + 5); j++) {
+      const o = seq[j] || {};
+      const hz2 = Number(o.value ?? o.hz) || 0;
+      if (!hz2) continue;
+      alt.push(`${hz2} Hz`);
+    }
+
+    // Symptom meta (uniformno za Listu / Favorite / Katalog)
+    const it = this.selectedItem || null;
+    const sName = (it?.simptom || "").toString().trim();
+    const sDesc = (it?.opis || it?.desc || it?.description || "").toString().trim();
+    const mkbCode = this.getMKB10Code(it?.mkb10);
+    const mkbDesc = this.getMKB10Desc(it?.mkb10);
+    const mkbUrl = this.getMKB10Url(it?.mkb10);
+    const mkbSys = (it?.mkb10?.izvor?.sistem || it?.mkb10?.izvor?.system || "").toString().trim();
+
+    const mkbMain = (mkbCode || mkbDesc)
+      ? `${this.escapeHtml(mkbCode || "")}${(mkbCode && mkbDesc) ? " — " : ""}${this.escapeHtml(mkbDesc || "")}${mkbSys ? ` <span class="muted">(${this.escapeHtml(mkbSys)})</span>` : ""}`
+      : `<span class="muted">nije popunjeno</span>`;
+
+    const mkbLink = mkbUrl
+      ? `<span class="line muted">🔗 Izvor MKB-10: <a href="${this.escapeAttr(mkbUrl)}" target="_blank" rel="noopener noreferrer">otvori</a></span>`
+      : "";
+
+    const descLine = `<span class="line muted">ℹ️ ${this.escapeHtml(desc || "Opis frekvencije nije unet.")}</span>`;
+    const srcLine  = srcText ? `<span class="line muted">📎 ${this.escapeHtml(srcText)}</span>` : "";
+    const altLine  = alt.length ? `<span class="line muted">🔁 Alternative: ${this.escapeHtml(alt.join(", "))}</span>` : "";
+
+    const symLine  = sName ? `<span class="line">🩺 Simptom: <b>${this.escapeHtml(sName)}</b></span>` : "";
+    const symDescLine = sName ? `<span class="line muted">📝 ${this.escapeHtml(sDesc || "Opis simptoma nije popunjen.")}</span>` : "";
+    const mkbLine  = sName ? `<span class="line muted">🏷️ ${mkbMain}</span>` : "";
+
+    if (this.ui.pStatus) {
+      this.ui.pStatus.innerHTML =
+        `<span class="line">🎵 Sada: <b>${hz} Hz</b>${carrierNote} <small>(${idx}/${total})</small></span>` +
+        `${descLine}${srcLine}` +
+        `<span class="line">${nextLine}</span>` +
+        `${altLine}` +
+        `${symLine}${symDescLine}${mkbLine}` +
+        `${mkbLink}`;
+    }
+
+    // Keep Now-Playing list in sync while running
+    this.renderNowPlayingList(stats);
+  }
+
+
+  onAudioTick(stats) {
+    this._lastStats = stats;
+    this._updateMediaSessionMetadata(freqObj, stats);
+    const per = Number(stats.durationPerFreq) || 0;
+    const totalTrack = (Number(stats.totalItems) || 0) * per;
+
+    // robustno: ako elapsedInFreq ne "radi" u nekim browserima / audio režimima,
+    // izračunaj ga iz ukupnog vremena
+    const elapsedTrack = (Number(stats.currentIndex) || 0) * per + (Number(stats.elapsedInFreq) || 0);
+    let elapsedInFreq = Number(stats.elapsedInFreq);
+    if (!Number.isFinite(elapsedInFreq) || elapsedInFreq <= 0) {
+      const approx = elapsedTrack - (Number(stats.currentIndex) || 0) * per;
+      elapsedInFreq = Math.max(0, Math.min(per, approx));
+    }
+
+    // UI: levo = u frekvenciji, sredina = ukupno, desno = ukupno trajanje
+    if (this.ui.pTimerNow) this.ui.pTimerNow.innerText = this.formatTime(elapsedInFreq);
+    if (this.ui.pTimerElapsed) this.ui.pTimerElapsed.innerText = this.formatTime(elapsedTrack);
+    if (this.ui.pTimerTotal) this.ui.pTimerTotal.innerText = this.formatTime(totalTrack);
+
+    if (this.isPlaylistActive) {
+      const currentTotal = this.protocolBaseElapsedSec + elapsedTrack;
+      if (this.ui.pProtocolTimer) {
+        this.ui.pProtocolTimer.innerText = `UKUPNO: ${this.formatTime(currentTotal)} / ${this.formatTime(this.protocolTotalTimeSec)}`;
+        this.ui.pProtocolTimer.style.display = 'block';
+      }
+    } else {
+      if (this.ui.pProtocolTimer) this.ui.pProtocolTimer.style.display = 'none';
+    }
+
+    this.saveResumeState(false);
+  }
+
+  onAudioComplete() {
+    this.log("PLAYER", "Complete", this.selectedItem?.id || "");
+    if (this.isPlaylistActive) {
+      setTimeout(() => this.playPlaylistItem(this.currentPlaylistIndex + 1), 400);
+    } else {
+      this.stopPlayer(true);
+      alert("Terapija završena.");
+    }
+  }
+
+  togglePlayPause() {
+    if (this.audio.isPlaying) {
+      const st = this.audio.pause();
+      if (this.ui.btnPlayPause) this.ui.btnPlayPause.innerText = "▶";
+      this._lastStats = {
+        currentIndex: st.currentIndex,
+        totalItems: st.totalItems,
+        elapsedInFreq: st.elapsedInFreq,
+        durationPerFreq: st.durationPerFreq
+      };
+      this.log("PLAYER", "Pause", `${this.selectedItem?.id||""} @${Math.round(st.elapsedInFreq)}s`);
+      this._teardownPlaybackSession("pause");
+      this.saveResumeState(false);
+    } else {
+      this._ensurePlaybackSession();
+      this.audio.play();
+      if (this.ui.btnPlayPause) this.ui.btnPlayPause.innerText = "⏸";
+      this.log("PLAYER", "Play", this.selectedItem?.id || "");
+    }
+  }
+
+  async stopPlayer(clearResume=false) {
+    this._teardownPlaybackSession("stop");
+    this.log("PLAYER", "Stop", this.selectedItem?.id || "");
+    await this.saveResumeState(true);
+    this.audio.stop();
+    if (this.ui.playerDock) this.ui.playerDock.style.display = 'none';
+    this.isPlaylistActive = false;
+    if (this.ui.pStatus) this.ui.pStatus.innerText = "";
+    if (clearResume) await this.db?.clearPlayerState?.();
+    this.renderPlaylistUI();
+    await this.renderResumeHint();
+  }
+
+  async saveResumeState(isStopEvent) {
+    if (!this.db || !this.selectedItem || !this._lastStats) return;
+    const payload = {
+      activePlaylistIndex: this.currentPlaylistIndex,
+      activePresetId: this.selectedItem.id,
+      freqIndex: this._lastStats.currentIndex || 0,
+      elapsedInFreqSec: this._lastStats.elapsedInFreq || 0,
+      isPlaylistActive: !!this.isPlaylistActive,
+      updatedAt: Date.now(),
+      reason: isStopEvent ? "stop" : "tick"
+    };
+    try { await this.db.savePlayerState(payload); } catch(e) {}
+  }
+
+  async renderResumeHint() {
+    const hint = document.getElementById("resume-hint");
+    if (!hint || !this.db) return;
+    const st = await this.db.getPlayerState();
+    if (!st || !st.activePresetId) { hint.style.display="none"; return; }
+    hint.style.display="block";
+    hint.innerText = `RESUME dostupno: ${st.activePresetId} • frekvencija #${(st.freqIndex||0)+1} • ${Math.floor(st.elapsedInFreqSec||0)}s`;
+  }
+
+  async resumeLastSession() {
+    const st = await this.db?.getPlayerState?.();
+    if (!st) return alert("Nema sačuvanog stanja.");
+
+    await this.loadPlaylistFromDB();
+
+    // optional offline registry (images, licensing)
+    await this.loadAcupressureRegistry();
+    if (!this.playlist.length) return alert("Playlist je prazna.");
+
+    this.isPlaylistActive = !!st.isPlaylistActive;
+    const plIndex = Math.max(0, Number(st.activePlaylistIndex) || 0);
+
+    this.playPlaylistItem(plIndex, {
+      freqIndex: Number(st.freqIndex)||0,
+      elapsedInFreqSec: Number(st.elapsedInFreqSec)||0
+    });
+    this.log("PLAYER", "Resume", st.activePresetId);
+  }
+
+  /* ===================== PROTOCOL ===================== */
+  startProtocol() {
+    if (!this.playlist.length) return;
+    this.isPlaylistActive = true;
+    this.currentPlaylistIndex = 0;
+
+    // total = sum(totalMin)
+    this.protocolTotalTimeSec = this.playlist.reduce((acc, it) => acc + (Number(it.userTotalMin)||0)*60, 0);
+    this.protocolBaseElapsedSec = 0;
+
+    this.playPlaylistItem(0);
+    this.log("PLAYER", "Start Protocol", String(this.playlist.length));
+  }
+
+  playPlaylistItem(index, resume=null) {
+    if (index >= this.playlist.length) {
+      this.stopPlayer(true);
+      alert("Protokol završen!");
+      return;
+    }
+
+    const item = this.playlist[index];
+    this.selectedItem = item;
+    this.currentPlaylistIndex = index;
+
+    // base elapsed before this item
+    this.protocolBaseElapsedSec = 0;
+    for (let i=0;i<index;i++) this.protocolBaseElapsedSec += (Number(this.playlist[i].userTotalMin)||0)*60;
+
+    const freqs = (item.frekvencije || []).filter(f => f.enabled !== false);
+    const perFreqMin = Math.max(1, Number(item.userPerFreqMin) || Number(item.trajanjePoFrekvencijiMin) || 5);
+    const totalDurSec = freqs.length * perFreqMin * 60;
+
+    const startIndex = resume?.freqIndex || 0;
+    const elapsedInFreq = resume?.elapsedInFreqSec || 0;
+
+    this.audio.loadSequence(freqs, totalDurSec, startIndex, elapsedInFreq);
+
+    if (this.ui.playerDock) this.ui.playerDock.style.display = 'block';
+    // Podrazumevano pokaži checklistu frekvencija ispod plejera (korisniku je korisno)
+    if (this.ui.nowPlayingPanel) this.ui.nowPlayingPanel.style.display = 'block';
+    const btnNowList = document.getElementById('btn-nowlist');
+    if (btnNowList) btnNowList.innerHTML = '▾ FREKVENCIJE';
+    if (this.ui.pTitle) this.ui.pTitle.innerText = `[${index+1}/${this.playlist.length}] ${item.simptom}`;
+
+    this._ensurePlaybackSession();
+    this.audio.play();
+    if (this.ui.btnPlayPause) this.ui.btnPlayPause.innerText = "⏸";
+    this.renderPlaylistUI();
+  }
+
+  /* ===================== MODAL (details) ===================== */
+  openModal(id) {
+    this.currentModalId = id;
+    const item = this.catalogItems.find(i => i.id === id);
+    if (!item) return;
+
+    this._modalItem = item;
+
+    document.getElementById('m-title').innerText = item.simptom;
+
+    // ⭐ Favorites status (async)
+    this.refreshModalFavoriteUI();
+
+    // ===== SUMMARY (OPIS + MKB-10) — uvek prikaži (sa placeholder-ima) =====
+    const descBox = document.getElementById('m-desc-box');
+    const descEl = document.getElementById('m-desc');
+    const opis = (item.opis || item.description || item.desc || "").toString().trim();
+    if (descEl) descEl.textContent = opis || "Opis nije popunjen (još).";
+    if (descBox) descBox.style.display = 'block';
+
+    const mkbBox = document.getElementById('m-mkb-box');
+    const mkbEl = document.getElementById('m-mkb');
+    const mkbHtml = this.formatMKB10Html(item.mkb10, { includeLink: true, showEmpty: true });
+    if (mkbEl) mkbEl.innerHTML = mkbHtml;
+    if (mkbBox) mkbBox.style.display = 'block';
+
+
+// init duration slider
+    const slider = document.getElementById('m-slider');
+    const perMinInit = Math.max(1, Number(item.trajanjePoFrekvencijiMin) || 5);
+    if (slider) slider.value = String(perMinInit);
+    const durLbl = document.getElementById('m-dur-lbl');
+    if (durLbl) durLbl.innerText = `${perMinInit} min`;
+
+    // show frequencies list with svrha/izvor
+    const freqsAll = (item.frekvencije || []);
+    const freqs = freqsAll.filter(f=>f.enabled!==false);
+    const perMin = Math.max(1, Number(item.trajanjePoFrekvencijiMin)||5);
+    const freqBox = document.getElementById('m-freqs');
+    if (freqBox) {
+      const rows = freqsAll.map((f, i) => `
+        <div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px solid #eee;">
+          <div style="min-width:140px; font-weight:900;"><input class="freq-toggle" type="checkbox" ${f.enabled === false ? "" : "checked"} onchange="window.app.setModalFreqEnabled(${i}, this.checked)" style="margin-right:10px;">${(f.value ?? f.hz ?? 0)} Hz</div>
+          <div style="flex:1;">
+            <div style="font-size:0.9rem;"><b>#${i+1}</b> • ${this.escapeHtml(((f.svrha || f.funkcija || f.desc || f.naziv || "—").toString()))}</div>
+            <div style="font-size:0.8rem; color:#666;">Izvor: ${this.escapeHtml(this._srcToText(f.izvor) || "—")}</div>
+          </div>
+          <div style="min-width:70px; text-align:right; font-weight:800; color:#2c3e50;">${perMin} min</div>
+        </div>
+      `).join("");
+      const totalMin = freqs.length * perMin;
+      freqBox.innerHTML = `
+        <div style="font-weight:900; margin-top:6px;">Frekvencije (ukupno: ${freqs.length}) • Procena: ${totalMin} min</div>
+        <div class="freq-listwrap">${rows || "<i>Nema frekvencija</i>"}</div>
+      `;
+    }
+
+// holistic (supports legacy + STL-normalized)
+const h = item.holisticki || item.holistika || {};
+let html = "";
+
+const addBox = (label, color, body, source=null) => {
+  if (!body) return;
+  html += `<div class="holistic-box" style="border-left:4px solid ${color}">
+    <small style="color:${color}; font-weight:bold;">${label}</small><br>
+    ${body}
+    ${source ? `<div style="margin-top:6px; font-size:0.75rem; color:#666;">Izvor: ${source}</div>` : ""}
+  </div>`;
+};
+
+addBox("PSIHOSOMATIKA – UZROK", "#8e44ad", h.psihosomatika?.uzrok || "");
+addBox("PSIHOSOMATIKA – LEK", "#8e44ad", h.psihosomatika?.lek || "");
+
+addBox("AFIRMACIJA", "#16a085",
+  h.afirmacija?.tekst ? `${h.afirmacija.tekst}${h.afirmacija.autor ? `<div style="margin-top:6px;"><b>Autor:</b> ${h.afirmacija.autor}</div>` : ""}` : "",
+  h.afirmacija?.izvor || ""
+);
+
+// molitva / duhovnost
+addBox("MOLITVA", "#f39c12", h.molitva?.tekst || h.duhovnost?.tekst || "", h.molitva?.izvor || h.duhovnost?.izvor || "");
+
+// narodni lek
+addBox("NARODNI LEK", "#27ae60", h.narodni_lek?.opis || h.saveti?.narodno || "");
+
+document.getElementById('m-holistic').innerHTML = html;
+
+// akupresura
+this.renderAcupressureInModal(item);
+
+    // v15.3 — advanced JSON / local override
+    this.renderModalAdvanced(item);
+
+    this.updateModalDuration();
+
+    document.getElementById('modal').style.display = 'flex';
+    this.log("UI", "Open Modal", id);
+  }
+
+updateModalDuration() {
+  const slider = document.getElementById('m-slider');
+  const perMin = Math.max(1, Number(slider?.value || "5"));
+  const lbl = document.getElementById('m-dur-lbl');
+  if (lbl) lbl.innerText = `${perMin} min`;
+
+  // Store for modal freq toggles
+  if (this._modalItem) this._modalItem.freq_duration_min = perMin;
+
+  // Live re-render frequency table so user immediately sees new estimate
+  const item = this._modalItem || this.catalogItems.find(i => i.id === this.currentModalId);
+  if (!item) return;
+
+  const freqsAll = (item.frekvencije || []);
+  const freqs = freqsAll.filter(f => f.enabled !== false);
+  const freqBox = document.getElementById('m-freqs');
+  if (!freqBox) return;
+
+  const rows = freqsAll.map((f, i) => `
+    <div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px solid #eee;">
+      <div style="min-width:140px; font-weight:900;"><input class="freq-toggle" type="checkbox" ${f.enabled === false ? "" : "checked"} onchange="window.app.setModalFreqEnabled(${i}, this.checked)" style="margin-right:10px;">${(f.value ?? f.hz ?? 0)} Hz</div>
+      <div style="flex:1;">
+        <div style="font-size:0.9rem;"><b>#${i+1}</b> • ${this.escapeHtml(((f.svrha || f.funkcija || f.desc || f.naziv || "—").toString()))}</div>
+        <div style="font-size:0.8rem; color:#666;">Izvor: ${this.escapeHtml(this._srcToText(f.izvor) || "—")}</div>
+      </div>
+      <div style="min-width:70px; text-align:right; font-weight:800; color:#2c3e50;">${perMin} min</div>
+    </div>
+  `).join("");
+
+  const totalMin = freqs.length * perMin;
+  freqBox.innerHTML = `
+    <div style="font-weight:900; margin-top:6px;">Frekvencije (ukupno: ${freqs.length}) • Procena: ${totalMin} min</div>
+    <div class="freq-listwrap">${rows || "<i>Nema frekvencija</i>"}</div>
+  `;
+
+  // Update advanced proto line if present
+  const proto = document.getElementById('m-proto');
+  if (proto) {
+    const enabledCount = freqs.length;
+    const loops = Math.max(1, Number(item.freq_loops) || 1);
+    const estMin = enabledCount * perMin;
+    proto.textContent = `${enabledCount} frekv. • ${perMin} min x ${loops} = ~${estMin * loops} min`;
+  }
+}
+
+_extractAcupPoints(item){
+  const a = item?.akupresura;
+  if (!a) return [];
+  if (Array.isArray(a)) return a;
+  if (Array.isArray(a.points)) return a.points;
+  if (Array.isArray(a.tacke)) return a.tacke;
+  return [];
+}
+
+renderAcupressureInModal(item){
+  const box = document.getElementById('m-acupressure');
+  if (!box) return;
+
+  const pts = this._extractAcupPoints(item);
+  if (!pts.length){
+    box.innerHTML = `<div class="muted" style="color:#777; font-style:italic;">Nema akupresure za ovaj simptom (još). 🙂</div>`;
+    return;
+  }
+
+  const regPoints = this.acupressureRegistry?.points || {};
+
+  const cards = pts.map((p, i) => {
+    const code = (p.tacka || p.tačka || p.code || "").toString().trim();
+    const name = (p.naziv || p.name || "").toString().trim();
+    const loc  = (p.lokacija || "").toString().trim();
+    const how  = (p.uputstvo || p.uputstva || "").toString().trim();
+    const src  = (p.izvor?.url || p.izvor || "").toString().trim();
+
+    const reg = code ? regPoints[code] : null;
+    const img = (p.slika || reg?.default || (Array.isArray(reg?.files) && reg.files[0]) || "").toString().trim();
+    const hasImg = !!img;
+
+    return `
+      <div class="acup-card">
+        <div class="acup-head">
+          <div class="acup-code">${code || "TAČKA"}</div>
+          <div class="acup-name">${name || ""}</div>
+        </div>
+        ${loc ? `<div class="acup-loc">📍 ${loc}</div>` : ""}
+        ${how ? `<div class="acup-how">👉 ${how}</div>` : ""}
+        ${src ? `<div class="muted" style="margin-top:6px; font-size:0.8rem; color:#666;">Izvor: ${src}</div>` : ""}
+        <div class="acup-actions">
+          <button class="acup-btn" onclick="openAcupressureViewer('${item.id}', ${i})">${hasImg ? "👁 Prikaži" : "👁 Prikaži (bez slike)"}</button>
+        </div>
+      </div>`;
+  }).join("");
+
+  box.innerHTML = `<div class="acup-grid">${cards}</div>`;
+}
+
+openAcupressureViewer(itemId, idx){
+  const modal = document.getElementById('acupressure-modal');
+  if (!modal) return;
+
+  const item = this.catalogItems.find(i => i.id === itemId);
+  if (!item) return;
+
+  const pts = this._extractAcupPoints(item);
+  const p = pts[Number(idx)] || null;
+  if (!p) return;
+
+  const code = (p.tacka || p.tačka || p.code || "").toString().trim();
+  const name = (p.naziv || p.name || "").toString().trim();
+  const loc  = (p.lokacija || "").toString().trim();
+  const how  = (p.uputstvo || p.uputstva || "").toString().trim();
+  const src  = (p.izvor?.url || p.izvor || "").toString().trim();
+
+  // Title
+  const t = document.getElementById('acup-title');
+  if (t) t.innerText = `${code || "Akupresura"}${name ? " — " + name : ""}`;
+
+  // Image resolve: point.slika > registry.points[code].default > first file
+  const reg = (code && this.acupressureRegistry?.points) ? this.acupressureRegistry.points[code] : null;
+  const imgPath = (p.slika || reg?.default || (Array.isArray(reg?.files) && reg.files[0]) || "").toString().trim();
+
+  const img = document.getElementById('acup-img');
+  const noimg = document.getElementById('acup-noimg');
+
+  if (imgPath) {
+    if (img) { img.src = imgPath; img.style.display = "block"; }
+    if (noimg) noimg.style.display = "none";
+  } else {
+    if (img) { img.removeAttribute("src"); img.style.display = "none"; }
+    if (noimg) noimg.style.display = "block";
+  }
+
+  // Marker (0..1 coords)
+  const marker = document.getElementById('acup-marker');
+  const mx = Number(p.marker?.x);
+  const my = Number(p.marker?.y);
+  if (marker && Number.isFinite(mx) && Number.isFinite(my)) {
+    marker.style.display = "block";
+    marker.style.left = `${Math.max(0, Math.min(1, mx)) * 100}%`;
+    marker.style.top  = `${Math.max(0, Math.min(1, my)) * 100}%`;
+  } else if (marker) {
+    marker.style.display = "none";
+  }
+
+  // Text
+  const elLoc = document.getElementById('acup-loc');
+  const elHow = document.getElementById('acup-how');
+  const elSrc = document.getElementById('acup-src');
+
+  if (elLoc) elLoc.innerText = loc ? `📍 ${loc}` : "";
+  if (elHow) elHow.innerText = how || "";
+  if (elSrc) elSrc.innerText = src ? `Izvor: ${src}` : "";
+
+  modal.style.display = "flex";
+  this.log("UI", "Acupressure Viewer Open", `${itemId}:${idx}`);
+}
+
+closeAcupressureViewer(){
+  const modal = document.getElementById('acupressure-modal');
+  if (modal) modal.style.display = "none";
+}
+
+
+  closeModal() {
+    document.getElementById('modal').style.display = 'none';
+    this.log("UI", "Close Modal", this.currentModalId||"");
+  }
+
+  playFromModal() {
+    const item = this.catalogItems.find(i => i.id === this.currentModalId);
+    if (!item) return;
+
+    const perFreqMin = Number(document.getElementById('m-slider')?.value || "5");
+    const freqsAll = (item.frekvencije || []);
+    const freqs = freqsAll.filter(f=>f.enabled!==false);
+    const totalMin = Math.max(1, freqs.length * perFreqMin);
+
+    this.isPlaylistActive = false;
+    this.playlist = [{
+      ...item,
+      uid: Date.now(),
+      userPerFreqMin: perFreqMin,
+      userTotalMin: totalMin
+    }];
+    this.savePlaylistToDB();
+
+    this.playPlaylistItem(0);
+    if (this.ui.pProtocolTimer) this.ui.pProtocolTimer.style.display = 'none';
+    this.closeModal();
+  }
+
+  async addToPlaylistFromModal() {
+    const item = this.catalogItems.find(i => i.id === this.currentModalId);
+    if (!item) return;
+
+    const perFreqMin = Number(document.getElementById('m-slider')?.value || "5");
+    const freqsAll = (item.frekvencije || []);
+    const freqs = freqsAll.filter(f=>f.enabled!==false);
+    const totalMin = Math.max(1, freqs.length * perFreqMin);
+
+    this.playlist.push({
+      ...item,
+      uid: Date.now(),
+      userPerFreqMin: perFreqMin,
+      userTotalMin: totalMin
+    });
+
+    await this.savePlaylistToDB();
+    this.renderPlaylistUI();
+    this.closeModal();
+    this.log("USER", "Add To Playlist", item.id);
+    this.showToast('✅ Dodato u listu.', {
+      actionLabel: '🎵 Otvori listu',
+      actionNav: 'playlist',
+      action2Label: '▶ Pusti odmah',
+      action2Onclick: `window.app && window.app.playItemNow && window.app.playItemNow('${item.id}')`
+    });
+  }
+
+  async quickAddToPlaylist(id) {
+    const item = this.catalogItems.find(i => i.id === id);
+    if (!item) return;
+
+    const perFreqMin = Math.max(1, Number(item.trajanjePoFrekvencijiMin)||5);
+    const freqsAll = (item.frekvencije||[]);
+    const freqs = freqsAll.filter(f=>f.enabled!==false);
+
+    const totalMin = Math.max(1, freqs.length * perFreqMin);
+
+    this.playlist.push({ ...item, uid: Date.now(), userPerFreqMin: perFreqMin, userTotalMin: totalMin });
+    await this.savePlaylistToDB();
+    this.renderPlaylistUI();
+    this.log("USER", "Quick Add Playlist", item.id);
+
+    this.showToast('✅ Dodato u listu.', {
+      actionLabel: '🎵 Otvori listu',
+      actionNav: 'playlist',
+      action2Label: '▶ Pusti odmah',
+      action2Onclick: `window.app && window.app.playItemNow && window.app.playItemNow('${id}')`
+    });
+  }
+
+  // v15.4.4 — Play selected symptom immediately (without destroying user's playlist)
+  playItemNow(id) {
+    const item = this.catalogItems.find(i => i.id === id);
+    if (!item) return;
+
+    const freqs = (item.frekvencije || []).filter(f => f.enabled !== false);
+    const perFreqMin = Math.max(1, Number(item.trajanjePoFrekvencijiMin) || 5);
+    const totalDurSec = freqs.length * perFreqMin * 60;
+
+    this.selectedItem = item;
+    this.isPlaylistActive = false;
+
+    this.audio.loadSequence(freqs, totalDurSec, 0, 0);
+
+    if (this.ui.playerDock) this.ui.playerDock.style.display = 'block';
+    if (this.ui.nowPlayingPanel) this.ui.nowPlayingPanel.style.display = 'block';
+    const btnNowList = document.getElementById('btn-nowlist');
+    if (btnNowList) btnNowList.innerHTML = '▾ FREKVENCIJE';
+    if (this.ui.pTitle) this.ui.pTitle.innerText = `[1/1] ${item.simptom}`;
+    if (this.ui.pProtocolTimer) this.ui.pProtocolTimer.style.display = 'none';
+
+    this._ensurePlaybackSession();
+    this.audio.play();
+    if (this.ui.btnPlayPause) this.ui.btnPlayPause.innerText = "⏸";
+    this.log("PLAYER", "Play Now", item.id);
+  }
+
+  renderPlaylistUI() {
+    const container = document.getElementById('playlist-container');
+    if (!container) return;
+
+    if (!this.playlist.length) {
+      container.innerHTML = "<p style='text-align:center; padding:20px; color:#999'>Lista je prazna.</p>";
+      const a = document.getElementById('pl-actions');
+      if (a) a.style.display='none';
+      const b = document.getElementById('badge-pl');
+      if (b) b.style.display='none';
+      return;
+    }
+
+    const a = document.getElementById('pl-actions');
+    if (a) a.style.display='block';
+    const b = document.getElementById('badge-pl');
+    if (b) { b.innerText = this.playlist.length; b.style.display='inline-block'; }
+
+    const totalMin = this.playlist.reduce((acc, it)=> acc + (Number(it.userTotalMin)||0), 0);
+    const td = document.getElementById('pl-total-duration');
+    if (td) td.innerText = `${totalMin} min`;
+
+    container.innerHTML = this.playlist.map((item, index) => {
+      const active = (this.isPlaylistActive && this.currentPlaylistIndex===index) ? "active" : "";
+      const mkbCode = this.getMKB10Code(item.mkb10);
+      const mkbDesc = this.getMKB10Desc(item.mkb10);
+      const mkbBadge = mkbCode ? `<span class="mkb-badge" style="background:#eef3ff; font-size:0.75rem; padding:2px 6px; border-radius:7px; margin-left:6px;">${this.escapeHtml(mkbCode)}</span>` : "";
+      const mkbLine = (mkbCode || mkbDesc)
+        ? `<small style="color:#777;">🏷️ ${this.escapeHtml(mkbCode || "")}${(mkbCode && mkbDesc) ? " — " : ""}${this.escapeHtml((mkbDesc || "").slice(0,80))}</small>`
+        : `<small style="color:#999;">🏷️ MKB-10: nije popunjeno</small>`;
+
+      return `
+        <div class="playlist-item ${active}">
+          <div style="flex:1">
+            <strong style="display:block;">${index+1}. ${this.escapeHtml(item.simptom)} ${mkbBadge}</strong>
+            <small style="color:#777;">${item.userPerFreqMin||5} min/freq • ukupno: ${item.userTotalMin||0} min</small>
+            ${mkbLine}
+          </div>
+          <button onclick="app.removeFromPlaylist('${item.uid}')" style="background:none; border:none; color:#C0392B; font-weight:bold; font-size:1.2rem;">✕</button>
+        </div>
+      `;
+    }).join("");
+  }
+
+
+  async removeFromPlaylist(uid) {
+    this.playlist = this.playlist.filter(i => i.uid != uid);
+    await this.savePlaylistToDB();
+    this.renderPlaylistUI();
+    this.log("USER", "Remove From Playlist", String(uid));
+  }
+
+  async clearPlaylist() {
+    if (!confirm("Obrisati listu?")) return;
+    this.playlist = [];
+    await this.savePlaylistToDB();
+    this.renderPlaylistUI();
+    this.log("USER", "Clear Playlist", "");
+  }
+
+  /* ===================== FAVORITES ===================== */
+
+  // v15.4.7 — fast favorite lookup
+  async refreshFavoritesSet() {
+    if (!this.db) { this._favSet = new Set(); return; }
+    try {
+      const favs = await this.db.getFavorites();
+      const ids = (Array.isArray(favs) ? favs : []).map(f => (f?.id || f)).filter(Boolean);
+      this._favSet = new Set(ids);
+    } catch (e) {
+      this._favSet = new Set();
+    }
+  }
+
+  isFavoriteId(id) {
+    return !!(this._favSet && this._favSet.has(id));
+  }
+
+  // Toggle favorite from any list button (catalog, playlist, etc.)
+  async toggleFavoriteQuick(id, btnEl = null) {
+    if (!this.db || !id) return;
+    try {
+      const nowFav = await this.db.toggleFavorite(id);
+      if (nowFav) this._favSet.add(id); else this._favSet.delete(id);
+
+      // Update button label immediately
+      if (btnEl) {
+        btnEl.innerHTML = nowFav ? "⭐ <span class=\"btn-label\">Favorit</span>" : "☆ <span class=\"btn-label\">Favorit</span>";
+        btnEl.setAttribute("aria-pressed", nowFav ? "true" : "false");
+        btnEl.title = nowFav ? "Ukloni iz favorita" : "Dodaj u favorite";
+      }
+
+      // If modal is open for the same id, sync its state
+      if (this.currentModalId === id) await this.refreshModalFavoriteUI();
+
+      // If Favorites page is visible, refresh list
+      if (this.currentPageId === 'favorites') this.updateFavorites();
+
+      this.showToast(nowFav ? "Dodato u favorite ⭐" : "Uklonjeno iz favorita", { actionLabel: "Favoriti", actionNav: "favorites" });
+      this.log("USER", "Toggle Favorite Quick", id);
+    } catch (e) {
+      this.showToast("Greška: ne mogu da sačuvam favorit.", {});
+      this.log("ERROR", "Toggle Favorite Quick Failed", e?.message || "unknown");
+    }
+  }
+
+  async refreshModalFavoriteUI() {
+    const btn = document.getElementById('btn-qs-fav');
+    if (!btn || !this.db || !this.currentModalId) return;
+
+    // Prefer cached set; refresh if empty
+    try {
+      if (!this._favSet || this._favSet.size === 0) await this.refreshFavoritesSet();
+    } catch (_) {}
+
+    const isFav = this.isFavoriteId(this.currentModalId);
+
+    btn.dataset.fav = isFav ? "1" : "0";
+    btn.innerText = isFav ? "⭐ FAVORIT" : "☆ FAVORIT";
+    btn.setAttribute("aria-pressed", isFav ? "true" : "false");
+    btn.title = isFav ? "Ukloni iz favorita" : "Dodaj u favorite";
+  }
+
+  async toggleFavoriteFromModal() {
+    if (!this.db || !this.currentModalId) return;
+    try {
+      const nowFav = await this.db.toggleFavorite(this.currentModalId);
+      if (nowFav) this._favSet.add(this.currentModalId); else this._favSet.delete(this.currentModalId);
+      await this.refreshModalFavoriteUI();
+      this.showToast(nowFav ? "Dodato u favorite ⭐" : "Uklonjeno iz favorita", { actionLabel: "Favoriti", actionNav: "favorites" });
+      this.log("USER", "Toggle Favorite", this.currentModalId);
+    } catch (e) {
+      this.showToast("Greška: ne mogu da sačuvam favorit.", {});
+      this.log("ERROR", "Toggle Favorite Failed", e?.message || "unknown");
+    }
+  }
+
+  // Backward compatibility (older UI calls)
+  async toggleFavoriteCurrent() {
+    return this.toggleFavoriteFromModal();
+  }
+
+  
+  async updateFavorites() {
+    const cont = document.getElementById('favorites-list');
+    if (!cont) return;
+    cont.innerHTML = "";
+
+    try {
+      if (!this._favSet || this._favSet.size === 0) await this.refreshFavoritesSet();
+      const favs = Array.from(this._favSet || []);
+
+      if (!favs.length) { cont.innerHTML = "<p style='text-align:center'>Nema favorita.</p>"; return; }
+
+      favs.forEach(fid => {
+        const it = this.catalogItems.find(x => x.id === fid);
+        if (!it) return;
+
+        const mkbCode = this.getMKB10Code(it.mkb10);
+        const mkbDesc = this.getMKB10Desc(it.mkb10);
+        const mkbBadge = mkbCode ? `<span class="mkb-badge" style="background:#eef3ff; font-size:0.75rem; padding:2px 6px; border-radius:7px; margin-left:6px;">${this.escapeHtml(mkbCode)}</span>` : "";
+
+        const short = (it.opis || it.desc || "").toString().trim().slice(0, 90);
+
+        cont.innerHTML += `
+          <div class="cat-item">
+            <div class="cat-main" onclick="app.openModal('${it.id}')">
+              <div class="cat-title">⭐ ${this.escapeHtml(it.simptom)} ${mkbBadge}</div>
+              <div class="cat-sub">${this.escapeHtml(short || "Klikni za detalje i frekvencije.")}</div>
+              <div class="cat-sub" style="margin-top:3px;">🏷️ MKB-10: ${mkbCode || mkbDesc ? `${this.escapeHtml(mkbCode || "")}${(mkbCode && mkbDesc) ? " — " : ""}${this.escapeHtml((mkbDesc || "").slice(0,80))}` : `<span class="muted">nije popunjeno</span>`}</div>
+            </div>
+            <div class="cat-actions">
+              <button class="btn-add-playlist" title="Dodaj u listu" onclick="event.stopPropagation(); app.quickAddToPlaylist('${it.id}')">➕ <span class="btn-label">U listu</span></button>
+              <button class="cat-mini-btn" title="Ukloni iz favorita" onclick="event.stopPropagation(); app.toggleFavoriteQuick('${it.id}', null)">✖ <span class="btn-label">Ukloni</span></button>
+            </div>
+          </div>
+        `;
+      });
+
+      this.log("DATA", "Favorites Render", String(favs.length));
+    } catch(e) {
+      cont.innerHTML = "<p style='text-align:center; color:#c0392b'>Greška učitavanja favorita.</p>";
+      console.error(e);
+      this.log("ERROR", "Favorites Failed", e.message);
+    }
+  }
+
+
+  /* ===================== BACKUP / RESTORE ===================== */
+
+// Backward-compatible UI hooks (index.html expects exportData/importData)
+async exportData() { return this.exportBackup(); }
+
+async importData(fileInput) {
+  try {
+    const file = fileInput?.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    await this.db.importAll(payload);
+    await this.loadPlaylistFromDB();
+    await this.loadAcupressureRegistry();
+    this.renderSystemPresets();
+    this.showCatalogHome();
+    this.renderPlaylistUI();
+    alert("Uvoz uspešan ✅");
+    this.log("USER", "Backup Import", "");
+  } catch(e) {
+    alert("Uvoz nije uspeo: " + (e?.message || e));
+    this.log("ERROR", "Backup Import Failed", e?.message || "unknown");
+  } finally {
+    try { if (fileInput) fileInput.value = ""; } catch(_) {}
+  }
+}
+
+  async exportBackup() {
+    try {
+      const payload = await this.db.exportAll();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `SINET_BACKUP_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      this.log("USER", "Backup Export", "");
+    } catch(e) {
+      alert("Backup nije uspeo: " + e.message);
+      this.log("ERROR", "Backup Export Failed", e.message);
+    }
+  }
+
+  importBackupPrompt() {
+    const inp = document.createElement("input");
+    inp.type = "file";
+    inp.accept = "application/json";
+    inp.onchange = async () => {
+      const file = inp.files?.[0];
+      if (!file) return;
+      const text = await file.text();
+      try {
+        const payload = JSON.parse(text);
+        await this.db.importAll(payload);
+        await this.loadPlaylistFromDB();
+
+    // optional offline registry (images, licensing)
+    await this.loadAcupressureRegistry();
+        this.renderPlaylistUI();
+        alert("Restore uspešan.");
+      } catch(e) {
+        alert("Restore nije uspeo: " + e.message);
+      }
+    };
+    inp.click();
+  }
+
+  /* ===================== AUDIT LOG UI ===================== */
+  async openAuditLog() {
+    const modal = document.getElementById("audit-modal");
+    const box = document.getElementById("audit-table");
+    if (!modal || !box) return;
+    const rows = await this.db.getAuditLog(500);
+
+    box.innerHTML = `
+      <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+        <thead>
+          <tr>
+            <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Time</th>
+            <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Category</th>
+            <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Action</th>
+            <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Details</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr>
+              <td style="padding:8px; border-bottom:1px solid #eee; white-space:nowrap;">${r.timestamp}</td>
+              <td style="padding:8px; border-bottom:1px solid #eee; font-weight:800;">${r.category}</td>
+              <td style="padding:8px; border-bottom:1px solid #eee;">${r.action}</td>
+              <td style="padding:8px; border-bottom:1px solid #eee;">${r.details||""}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    `;
+    modal.style.display = "flex";
+    this.log("UI", "Open Audit", "");
+  }
+
+  closeAuditLog() {
+    const modal = document.getElementById("audit-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  async downloadAuditLog() {
+    const rows = await this.db.getAuditLog(5000);
+    const blob = new Blob([JSON.stringify(rows, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `SINET_AUDIT_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    this.log("USER", "Audit Export", "");
+  }
+
+  
+  /* ===================== v15.3 — PRESETS (Seniors + Hitno) ===================== */
+
+  async loadSeniorPresets() {
+    const url = 'data/presets/senior_presets.json';
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`${url} nije pronađen (${res.status})`);
+      this.seniorPresets = await res.json();
+      this.log("DATA", "Senior Presets Loaded", url);
+    } catch (e) {
+      this.seniorPresets = null;
+      console.warn("Senior presets not loaded:", e?.message || e);
+      this.log("DATA", "Senior Presets Missing", e?.message || "unknown");
+    }
+  }
+
+  _norm(str) {
+    return (str || "")
+      .toString()
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9čćšđž\s-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  renderSystemPresets() {
+    const container = document.getElementById('presets-container');
+    if (!container) return;
+
+    let html = "";
+
+    // 1) Seniors (always above HITNO)
+    const g0 = this.seniorPresets?.groups?.find(g => g.id === "senior") || this.seniorPresets?.groups?.[0];
+    if (g0 && Array.isArray(g0.entries) && g0.entries.length) {
+      const limit = this.seniorShowAll ? g0.entries.length : (Number(g0.defaultLimit) || 30);
+      html += `<div class="preset-category-title">${g0.title || "🧓 STARIJI — Najčešće"}</div>`;
+      html += `<div class="preset-grid">`;
+      g0.entries.slice(0, limit).forEach((e, idx) => {
+        const sub = (e.terms || []).slice(0, 2).join(" • ");
+        html += `
+          <div class="preset-chip" onclick="app.openSeniorPreset(${idx})" role="button" aria-label="Otvori ${this.escapeHtml(e.label)}">
+            <div class="ico">⚡</div>
+            <div class="txt">
+              <div class="t">${this.escapeHtml(e.label)}</div>
+              <div class="s">${this.escapeHtml(sub || "klikni za detalje")}</div>
+            </div>
+          </div>
+        `;
+      });
+      html += `</div>`;
+
+      if (g0.entries.length > (Number(g0.defaultLimit) || 30)) {
+        html += `
+          <div class="preset-morebar">
+            <button onclick="app.toggleSeniorShowAll()">${this.seniorShowAll ? "Prikaži manje" : `Prikaži sve (${g0.entries.length})`}</button>
+            <button onclick="nav('catalog')">Otvori katalog</button>
+          </div>
+        `;
+      }
+    }
+
+    // 2) HITNO (akutno) — derive from catalog
+    const hitnoItems = (this.catalogItems || []).filter(it => {
+      const g = (it.quickGroup || "").toLowerCase();
+      const o = (it.oblast || "").toLowerCase();
+      const id = String(it.id || "");
+      return id.startsWith("sys-hitno") || g.includes("prva pomoć") || g.includes("prva pomoc") || o.includes("hitno") || g.includes("akut");
+    }).slice(0, 10);
+
+    if (hitnoItems.length) {
+      html += `<div class="preset-category-title">🚨 HITNO (akutno)</div>`;
+      hitnoItems.forEach(it => {
+        const short = (it.opis || "").toString().trim().slice(0, 85);
+        html += `
+          <div class="preset-item" onclick="app.openModal('${it.id}')">
+            <div class="preset-info">
+              <div style="font-weight:900; color:#333;">⚡ ${this.escapeHtml(it.simptom)}</div>
+              <div style="font-size:0.82rem; color:#777;">${this.escapeHtml(short)}</div>
+            </div>
+            <div class="play-icon">▶</div>
+          </div>
+        `;
+      });
+    }
+
+    container.innerHTML = html;
+  }
+
+  toggleSeniorShowAll() {
+    this.seniorShowAll = !this.seniorShowAll;
+    this.renderSystemPresets();
+  }
+
+  openSeniorPreset(idx) {
+    const g0 = this.seniorPresets?.groups?.find(g => g.id === "senior") || this.seniorPresets?.groups?.[0];
+    const entry = g0?.entries?.[Number(idx)];
+    if (!entry) return;
+
+    const found = this.resolvePresetEntry(entry);
+    if (found) return this.openModal(found.id);
+
+    // Fallback: AI Upitnik (prefill)
+    this.prefillAI(entry.label, "", "Nije pronađeno u katalogu — koristi AI upitnik 🙂");
+    this.nav('ai');
+  }
+
+  resolvePresetEntry(entry) {
+    const label = entry?.label || "";
+    const lab = this._norm(label);
+
+    // 1) Explicit preferred IDs (best)
+    const preferIds = Array.isArray(entry?.preferIds) ? entry.preferIds : [];
+    for (const pid of preferIds) {
+      const it = this.catalogItems.find(x => x.id === pid);
+      if (it) return it;
+    }
+
+    // 2) Special-case: "Zubobolja & infekcija" can incorrectly match to UTI.
+    if (lab.includes("zubobolja")) {
+      const z = (this.catalogItems || []).find(it =>
+        this._norm(it.simptom || "").includes("zubobolja") &&
+        (it.seniorQuick === true || String(it.quickGroup || "").toLowerCase().includes("zubi") || it.favoritesDefault === true)
+      );
+      if (z) return z;
+    }
+
+    const terms = Array.isArray(entry?.terms) ? entry.terms : [];
+    const want = terms.filter(Boolean).map(t => this._norm(t)).filter(Boolean);
+
+    // Primary term heuristic: first term OR first segment before '&' / '+' / '/'
+    const primaryFromLabel = this._norm((label || "").split(/[&+\/]/)[0] || "");
+    const primary = (want[0] || primaryFromLabel || "").trim();
+
+    const allItems = (this.catalogItems || []);
+    let candidates = allItems.filter(it => {
+      const hay = this._norm(`${it.simptom || ""} ${it.id || ""} ${it.oblast || ""}`);
+      if (want.length && want.some(t => hay.includes(t))) return true;
+      if (lab && hay.includes(lab)) return true;
+      if (primary && hay.includes(primary)) return true;
+      return false;
+    });
+
+    // If primary exists, restrict to primary-matching candidates (prevents wrong matches)
+    if (primary) {
+      const strict = candidates.filter(it => {
+        const hay = this._norm(`${it.simptom || ""} ${it.id || ""} ${it.oblast || ""}`);
+        return hay.includes(primary);
+      });
+      if (strict.length) candidates = strict;
+    }
+
+    if (!candidates.length) return null;
+
+    // Score by #term hits first, then seniorQuick/favDefault, then label hit.
+    let best = null, bestScore = -1;
+    for (const it of candidates) {
+      const hay = this._norm(`${it.simptom || ""} ${it.id || ""} ${it.oblast || ""}`);
+      let hitCount = 0;
+      for (const t of want) if (t && hay.includes(t)) hitCount += 1;
+
+      let score = hitCount * 10;
+      if (primary && hay.includes(primary)) score += 6;
+      if (lab && hay.includes(lab)) score += 3;
+
+      if (it.seniorQuick === true) score += 5;
+      if (it.favoritesDefault === true) score += 3;
+      if (!String(it.id || "").startsWith("usr-")) score += 1;
+
+      // Tie-breaker: longer symptom name often more specific
+      score += Math.min(3, ((it.simptom || "").length / 50));
+
+      if (score > bestScore) { bestScore = score; best = it; }
+    }
+    return best;
+  }
+
+
+  /* ===================== v15.3 — CATALOG (Oblasti-first, elder-friendly) ===================== */
+
+  showCatalogHome() {
+    this.activeOblast = null;
+    const inp = document.getElementById('search-input');
+    if (inp) inp.value = "";
+
+    // FIX v15.4.4: if user previously opened an oblast, the grid may stay hidden.
+    const grid = this.ui.catalogOblastGrid || document.getElementById('catalog-oblast-grid');
+    if (grid) grid.style.display = 'grid';
+
+    this.renderCatalogOblastGrid();
+    if (this.ui.catalogList) this.ui.catalogList.innerHTML = "";
+  }
+
+  renderCatalogOblastGrid() {
+    const grid = this.ui.catalogOblastGrid || document.getElementById('catalog-oblast-grid');
+    if (!grid) return;
+
+    // Ensure visible in case it was hidden by an opened oblast view.
+    grid.style.display = 'grid';
+
+    const items = this.catalogItems || [];
+    const counts = new Map();
+    for (const it of items) {
+      const o = (it.oblast || "Ostalo").toString();
+      counts.set(o, (counts.get(o) || 0) + 1);
+    }
+
+    const oblasts = Array.from(counts.entries())
+      .sort((a,b)=> b[1]-a[1]) // most populated first
+      .slice(0, 60);
+
+    grid.innerHTML = oblasts.map(([oblast, n]) => `
+      <div class="oblast-card" onclick="app.openOblast('${this.escapeAttr(oblast)}')">
+        <div class="oblast-title">📌 ${this.escapeHtml(oblast)}</div>
+        <div class="oblast-count">${n} stavki</div>
+        <div class="oblast-cta">👉 Klikni za listu</div>
+      </div>
+    `).join("");
+  }
+
+  openOblast(oblast) {
+    this.activeOblast = oblast;
+    const inp = document.getElementById('search-input');
+    if (inp) inp.value = "";
+
+    const filtered = (this.catalogItems || []).filter(it => (it.oblast || "Ostalo") === oblast);
+    this.renderCatalogList(filtered, `Oblast: ${oblast}`, true);
+  }
+
+  renderCatalogList(items, title = "", showBack = false) {
+    const container = this.ui.catalogList || document.getElementById('catalog-list');
+    if (!container) return;
+
+    // Remember last rendered list (for TXT export)
+    this.lastCatalogViewItems = Array.isArray(items) ? items.slice() : [];
+    this.lastCatalogViewTitle = title || "";
+
+    const grid = this.ui.catalogOblastGrid || document.getElementById('catalog-oblast-grid');
+    if (grid) grid.style.display = showBack ? "none" : "grid";
+
+    // Backbar
+    let backHtml = "";
+    if (showBack) {
+      backHtml = `
+        <div class="catalog-backbar">
+          <button class="backbtn" onclick="app.showCatalogHome()">← Oblasti</button>
+          <div class="label">${this.escapeHtml(title)}</div>
+        </div>
+      `;
+    }
+
+    if (!items || !items.length) {
+      container.innerHTML = backHtml + "<p style='text-align:center; padding:20px;'>Nema rezultata.</p>";
+      return;
+    }
+
+    // Flat list cards
+    const html = items.map(it => {
+      const short = (it.opis || it.desc || "").toString().trim().slice(0, 110);
+
+      const mkbCode = this.getMKB10Code(it.mkb10);
+      const mkbDesc = this.getMKB10Desc(it.mkb10);
+      const mkbInline = (mkbCode || mkbDesc)
+        ? `🏷️ MKB-10: ${this.escapeHtml(mkbCode || "")}${(mkbCode && mkbDesc) ? " — " : ""}${this.escapeHtml((mkbDesc || "").slice(0, 80))}`
+        : `🏷️ MKB-10: <span class="muted">nije popunjeno</span>`;
+
+      const mkbBadge = mkbCode
+        ? `<span class="mkb-badge" style="background:#eef3ff; font-size:0.75rem; padding:2px 6px; border-radius:7px; margin-left:6px;">${this.escapeHtml(mkbCode)}</span>`
+        : '';
+
+      const isUser = String(it.id||"").startsWith("usr-");
+      const isFav = this.isFavoriteId(it.id);
+
+      return `
+        <div class="cat-item">
+          <div class="cat-main" onclick="app.openModal('${it.id}')">
+            <div class="cat-title">${isUser ? "🧩 " : ""}${this.escapeHtml(it.simptom)} ${mkbBadge}</div>
+            <div class="cat-sub">${this.escapeHtml(short || "Klikni za detalje i frekvencije.")}</div>
+            <div class="cat-sub" style="margin-top:3px;">${mkbInline}</div>
+          </div>
+          <div class="cat-actions">
+            <button class="btn-add-playlist" title="Dodaj u listu" aria-label="Dodaj u listu" onclick="event.stopPropagation(); app.quickAddToPlaylist('${it.id}')">➕ <span class="btn-label">U listu</span></button>
+            <button class="cat-mini-btn btn-fav" title="${isFav ? "Ukloni iz favorita" : "Dodaj u favorite"}" aria-label="Favorit" aria-pressed="${isFav ? "true" : "false"}" onclick="event.stopPropagation(); app.toggleFavoriteQuick('${it.id}', this)">${isFav ? "⭐" : "☆"} <span class="btn-label">Favorit</span></button>
+            ${isUser ? `<button class="cat-mini-btn" title="Izmeni" onclick="event.stopPropagation(); app.editUserSymptom('${it.id}')">✎ <span class="btn-label">Edit</span></button>` : `<button class="cat-mini-btn" title="AI upitnik" onclick="event.stopPropagation(); app.prefillAI('${this.escapeAttr(it.simptom)}', '${this.escapeAttr(short)}'); nav('ai');">🤖 <span class="btn-label">AI</span></button>`}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    container.innerHTML = backHtml + html;
+  }
+
+
+  filterCatalog(query = null) {
+    const q = (query !== null ? query : (document.getElementById('search-input')?.value || "")).toString().trim();
+    const nq = this._norm(q);
+
+    if (!nq) {
+      if (this.activeOblast) return this.openOblast(this.activeOblast);
+      return this.showCatalogHome();
+    }
+
+    const items = (this.catalogItems || []).filter(it => {
+      const mkb = `${this.getMKB10Code(it.mkb10)} ${this.getMKB10Desc(it.mkb10)} ${this.getMKB10Url(it.mkb10)}`;
+      const hay = this._norm(`${it.simptom || ""} ${it.oblast || ""} ${it.opis || ""} ${mkb}`);
+      return hay.includes(nq);
+    });
+
+    this.renderCatalogList(items, `Rezultati: ${q}`, true);
+  }
+
+
+  /* ===================== v15.4.5 — CATALOG TXT EXPORT ===================== */
+
+  exportCatalogTxt(mode = "view") {
+    try {
+      const items = this._getCatalogExportItems(mode);
+      if (!items || !items.length) return alert("Nema stavki za izvoz.");
+
+      const now = new Date();
+      const date = now.toISOString().slice(0, 10);
+
+      const scopeLabel = (mode === "all")
+        ? "CELOKUPAN KATALOG"
+        : (this.lastCatalogViewTitle || this.activeOblast ? ("PRIKAZ: " + (this.lastCatalogViewTitle || this.activeOblast)) : "PRIKAZ");
+
+      const txt = this._formatCatalogTxt(items, {
+        date,
+        scopeLabel
+      });
+
+      const fnameSafe = (mode === "all" ? "SVE" : "PRIKAZ");
+      const filename = `SINET_KATALOG_${fnameSafe}_${date}.txt`;
+      this._downloadText(txt, filename);
+
+      this.log("USER", "Catalog TXT Export", `${mode} • ${items.length}`);
+    } catch (e) {
+      alert("Izvoz TXT nije uspeo: " + (e?.message || e));
+      this.log("ERROR", "Catalog TXT Export Failed", e?.message || "unknown");
+    }
+  }
+
+  _getCatalogExportItems(mode = "view") {
+    const all = Array.isArray(this.catalogItems) ? this.catalogItems.slice() : [];
+
+    if (mode === "all") return all;
+
+    // Prefer exact current view items (oblast list or search results)
+    if (Array.isArray(this.lastCatalogViewItems) && this.lastCatalogViewItems.length) {
+      return this.lastCatalogViewItems.slice();
+    }
+
+    // Fallback: active oblast or search input
+    const q = (document.getElementById('search-input')?.value || "").toString().trim();
+    const nq = this._norm(q);
+
+    if (nq) {
+      return all.filter(it => {
+        const hay = this._norm(`${it.simptom || ""} ${it.oblast || ""} ${it.opis || ""} ${this.getMKB10Code(it.mkb10) || ""} ${this.getMKB10Desc(it.mkb10) || ""}`);
+        return hay.includes(nq);
+      });
+    }
+
+    if (this.activeOblast) return all.filter(it => (it.oblast || "Ostalo") === this.activeOblast);
+
+    return all;
+  }
+
+  _formatCatalogTxt(items, ctx = {}) {
+    const date = ctx.date || new Date().toISOString().slice(0,10);
+    const scopeLabel = ctx.scopeLabel || "KATALOG";
+
+    // Group by oblast
+    const groups = new Map();
+    for (const it of items) {
+      const oblast = (it.oblast || "Ostalo").toString();
+      if (!groups.has(oblast)) groups.set(oblast, []);
+      groups.get(oblast).push(it);
+    }
+
+    const oblastNames = Array.from(groups.keys()).sort((a,b)=> a.localeCompare(b, 'sr', { sensitivity:'base' }));
+
+    let out = "";
+    out += "==================================================\n";
+    out += "SINET AUDIO LEKAR - EXPORT KATALOGA\n";
+    out += "==================================================\n";
+    out += `Datum: ${date}\n`;
+    out += `Opseg: ${scopeLabel}\n`;
+    out += `Stavki: ${items.length}\n`;
+    out += "==================================================\n\n";
+
+    for (const oblast of oblastNames) {
+      const arr = groups.get(oblast) || [];
+      arr.sort((a,b)=> (a.simptom||"").localeCompare(b.simptom||"", 'sr', { sensitivity:'base' }));
+
+      out += "##################################################\n";
+      out += `OBLAST: ${oblast}\n`;
+      out += "##################################################\n\n";
+
+      let n = 1;
+      for (const it of arr) {
+        const naziv = (it.simptom || it.naziv || "").toString().trim();
+        const opis = (it.opis || it.desc || "").toString().trim();
+        const id = (it.id || "").toString().trim();
+
+        const mkbCode = this.getMKB10Code(it.mkb10);
+        const mkbDesc = this.getMKB10Desc(it.mkb10);
+        const mkbUrl  = this.getMKB10Url ? this.getMKB10Url(it.mkb10) : "";
+
+        const h = it.holisticki || {};
+        const psi = h.psihosomatika || {};
+        const af  = h.afirmacija || {};
+        const mol = h.molitva || h.duhovnost || {};
+        const narOpis = (h.narodni_lek && (h.narodni_lek.opis || h.narodni_lek.tekst)) ? (h.narodni_lek.opis || h.narodni_lek.tekst) : (h.saveti?.narodno || "");
+
+        const mkbLine = `MKB-10: code="${(mkbCode||"").toString().replace(/"/g,"'")}" | opis="${(mkbDesc||"").toString().replace(/"/g,"'")}" | url="${(mkbUrl||"").toString().replace(/"/g,"'")}"`;
+
+        // Frequencies — full fields (even if empty)
+        const freqsIn = Array.isArray(it.frekvencije) ? it.frekvencije : [];
+        const freqLines = freqsIn
+          .map(f => {
+            const hz = Number(f?.hz ?? f?.value ?? 0) || 0;
+            if (!hz) return null;
+            const nazivF = (f?.naziv || "").toString().trim().replace(/"/g,"'");
+            const opisF  = (f?.opis || "").toString().trim().replace(/"/g,"'");
+            const funF   = (f?.funkcija || f?.svrha || f?.desc || "").toString().trim().replace(/"/g,"'");
+            const srcF   = (f?.izvor || f?.src || "").toString().trim().replace(/"/g,"'");
+            return `   - ${hz} Hz | naziv="${nazivF}" | opis="${opisF}" | funkcija="${funF}" | izvor="${srcF}"`;
+          })
+          .filter(Boolean);
+
+        out += `${n}. ${naziv || "(bez naziva)"}\n`;
+        out += "   ----------------------------------------------\n";
+        if (id) out += `   ID: ${id}\n`;
+        out += `   OPIS: ${(opis || "").toString().replace(/\n/g," ")}\n`;
+        out += `   ${mkbLine}\n`;
+
+        out += `   PSIHOSOMATIKA: uzrok="${(psi.uzrok||"").toString().replace(/"/g,"'")}" | lek="${(psi.lek||"").toString().replace(/"/g,"'")}"\n`;
+        out += `   AFIRMACIJA: tekst="${(af.tekst||"").toString().replace(/"/g,"'")}" | autor="${(af.autor||"").toString().replace(/"/g,"'")}" | izvor="${(af.izvor||"").toString().replace(/"/g,"'")}"\n`;
+        out += `   MOLITVA: tekst="${(mol.tekst||"").toString().replace(/"/g,"'")}" | izvor="${(mol.izvor||"").toString().replace(/"/g,"'")}"\n`;
+        out += `   NARODNI_LEK: opis="${(narOpis||"").toString().replace(/"/g,"'")}"\n`;
+
+        if (freqLines.length) {
+          out += "   FREKVENCIJE:\n";
+          out += freqLines.join("\n") + "\n";
+        } else {
+          out += "   FREKVENCIJE: (nema)\n";
+        }
+
+        out += "   ----------------------------------------------\n\n";
+        n++;
+      }
+
+      out += "\n";
+    }
+
+    return out;
+  }
+
+  _wrapTxtLine(line, maxLen = 120, indent = "   ") {
+    // Keeps words/segments split on ', ' where possible
+    if (!line || line.length <= maxLen) return line + "\n";
+    const parts = line.split(", ");
+    let out = "";
+    let cur = "";
+    for (let i=0; i<parts.length; i++) {
+      const seg = (i===0) ? parts[i] : (", " + parts[i]);
+      if ((cur + seg).length <= maxLen) {
+        cur += seg;
+      } else {
+        out += cur + "\n";
+        cur = indent + parts[i];
+      }
+    }
+    if (cur) out += cur + "\n";
+    return out;
+  }
+
+  _downloadText(text, filename) {
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+
+
+
+  /* ===================== v15.4.7.4 — STL v1.1 JSON EXPORT ===================== */
+
+  exportCatalogSTL(mode = "view") {
+    try {
+      const items = this._getCatalogExportItems(mode);
+      if (!items || !items.length) return alert("Nema stavki za izvoz.");
+
+      const now = new Date();
+      const date = now.toISOString().slice(0, 10);
+
+      const scopeLabel = (mode === "all")
+        ? "CELOKUPAN KATALOG"
+        : (this.lastCatalogViewTitle || this.activeOblast ? ("PRIKAZ: " + (this.lastCatalogViewTitle || this.activeOblast)) : "PRIKAZ");
+
+      const stl = this._buildSTLPayload(items, { mode, scopeLabel });
+
+      const fnameSafe = (mode === "all" ? "SVE" : "PRIKAZ");
+      const filename = `SINET_STL_${fnameSafe}_${date}.json`;
+
+      this._downloadJson(stl, filename);
+      this.log("USER", "Catalog STL Export", `${mode} • ${items.length}`);
+    } catch (e) {
+      alert("Izvoz STL JSON nije uspeo: " + (e?.message || e));
+      this.log("ERROR", "Catalog STL Export Failed", e?.message || "unknown");
+    }
+  }
+
+  _downloadJson(obj, filename) {
+    const text = JSON.stringify(obj, null, 2);
+    const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  _buildSTLPayload(items, ctx = {}) {
+    const now = new Date();
+    const ts = now.toISOString();
+
+    // Summary stats
+    let freqTotal = 0;
+    for (const it of items) {
+      const freqs = Array.isArray(it?.frekvencije) ? it.frekvencije : [];
+      freqTotal += freqs.filter(f => Number(f?.value ?? f?.hz ?? 0) > 0).length;
+    }
+
+    const simptomi = items.map(it => this._runtimeItemToSTL(it)).filter(Boolean);
+
+    const meta = {
+      schema: "SINET_STL",
+      version: "1.1",
+      generatedAt: ts,
+      sourceFile: (ctx.mode === "all") ? "SINET_CATALOG (ALL)" : "SINET_CATALOG (VIEW)",
+      notes: ctx.scopeLabel || "",
+      audit: [{
+        ts,
+        tool: "SINET Audio Lekar",
+        toolVersion: "15.4.7.4",
+        mode: "manual",
+        providers: [],
+        summary: { simptomi: simptomi.length, freqTotal }
+      }]
+    };
+
+    return { meta, simptomi };
+  }
+
+  _runtimeItemToSTL(it) {
+    if (!it || !it.id) return null;
+
+    const id = String(it.id).trim();
+    const naziv = (it.simptom || it.naziv || "").toString();
+    const opis = (it.opis || it.desc || "").toString();
+
+    // Prefer rich object if present
+    const mkbObj = it.mkb10_obj || it.mkb10 || null;
+
+    // Holistics (runtime uses holisticki.*)
+    const h = it.holisticki || {};
+    const psi = h.psihosomatika || {};
+    const af  = h.afirmacija || {};
+    const mol = h.molitva || h.duhovnost || {};
+    const nar = (h.narodni_lek?.opis !== undefined)
+      ? h.narodni_lek
+      : { opis: (h.saveti?.narodno || "") };
+
+    // Frekvencije
+    const perMin = Number(it.freq_duration_min ?? it.trajanjePoFrekvencijiMin ?? it.trajanje_po_frekvenciji_min ?? 0) || null;
+    const freqsIn = Array.isArray(it.frekvencije) ? it.frekvencije : [];
+    const frekvencije = freqsIn
+      .map(f => this._runtimeFreqToSTL(f, perMin))
+      .filter(Boolean);
+
+    // Ensure stable full shape (even if empty)
+    const stl = {
+      id,
+      uid: (it.uid !== undefined) ? it.uid : null,
+      naziv: naziv || "",
+      opis: opis || "",
+      mkb10: this._mkb10ToCanonical(mkbObj),
+
+      psihosomatika: {
+        uzrok: (psi.uzrok || "").toString(),
+        lek: (psi.lek || "").toString()
+      },
+
+      afirmacija: {
+        tekst: (af.tekst || "").toString(),
+        autor: (af.autor || "").toString(),
+        izvor: (af.izvor || "").toString()
+      },
+
+      molitva: {
+        tekst: (mol.tekst || "").toString(),
+        izvor: (mol.izvor || "").toString()
+      },
+
+      narodni_lek: {
+        opis: (nar.opis || nar.tekst || "").toString()
+      },
+
+      akupresura: (it.akupresura !== undefined ? it.akupresura : null),
+
+      frekvencije,
+
+      extensions: {
+        player: {
+          trajanje_po_frekvenciji_min: perMin,
+          ukupno_trajanje_min: Number(it.ukupnoTrajanjeMin ?? 0) || null
+        },
+        runtime: {
+          oblast: (it.oblast || "").toString(),
+          podOblast: (it.podOblast || "").toString()
+        }
+      }
+    };
+
+    // If item was derived from STL earlier, preserve richer blocks if present,
+    // but keep canonical keys stable (do NOT remove required canonical keys).
+    if (it._stl && typeof it._stl === "object") {
+      // Preserve akupresura if it exists in _stl and current is null/empty
+      if ((stl.akupresura === null || stl.akupresura === undefined) && it._stl.akupresura !== undefined) {
+        stl.akupresura = it._stl.akupresura;
+      }
+    }
+
+    return stl;
+  }
+
+  _mkb10ToCanonical(mkb) {
+    // Canonical target:
+    // { code: "", opis: "", izvor?: { sistem,url,autor,delo,licenca } }
+    if (!mkb) return { code: "", opis: "", izvor: { sistem: "ICD-10 / MKB-10", url: "", autor: "", delo: "", licenca: "" } };
+
+    if (typeof mkb === "string") {
+      return { code: mkb.trim(), opis: "", izvor: { sistem: "ICD-10 / MKB-10", url: "", autor: "", delo: "", licenca: "" } };
+    }
+
+    if (typeof mkb !== "object") {
+      return { code: String(mkb), opis: "", izvor: { sistem: "ICD-10 / MKB-10", url: "", autor: "", delo: "", licenca: "" } };
+    }
+
+    const code = (mkb.code || mkb.sifra || mkb.sifra_mkb || mkb.icd10 || "").toString().trim();
+    const opis = (mkb.opis || mkb.naziv || mkb.desc || "").toString().trim();
+    const iz = mkb.izvor || {};
+    const izvor = {
+      sistem: (iz.sistem || iz.system || "ICD-10 / MKB-10").toString(),
+      url: (iz.url || iz.URL || iz.link || "").toString(),
+      autor: (iz.autor || "").toString(),
+      delo: (iz.delo || "").toString(),
+      licenca: (iz.licenca || "").toString()
+    };
+    return { code, opis, izvor };
+  }
+
+  _runtimeFreqToSTL(f, perMin = null) {
+    if (!f) return null;
+    const hz = Number(f.hz ?? f.value ?? 0);
+    if (!Number.isFinite(hz) || hz <= 0) return null;
+
+    const funkcija = (f.funkcija || f.svrha || f.desc || f.naziv || "").toString().trim();
+    const opis = (f.opis || "").toString().trim();
+    const naziv = (f.naziv || "").toString().trim();
+
+    const izObj = f.izvor_obj || f.izvor || f.src || null;
+    const izvor = this._sourceToObj(izObj);
+
+    const out = {
+      hz,
+      naziv: naziv || "",
+      opis: opis || "",
+      funkcija: funkcija || "",
+      izvor,
+      enabled: f.enabled !== false
+    };
+
+    // Optional: keep per-frequency duration hint if known
+    if (perMin !== null) out.trajanje_min = perMin;
+
+    return out;
+  }
+
+  _sourceToObj(src) {
+    const blank = { sistem: "", url: "", autor: "", delo: "", licenca: "" };
+    if (!src) return { ...blank };
+
+    if (typeof src === "string") {
+      const s = src.trim();
+      if (!s) return { ...blank };
+      if (/^https?:\/\//i.test(s)) return { ...blank, url: s };
+      return { ...blank, sistem: s };
+    }
+
+    if (typeof src !== "object") return { ...blank, sistem: String(src) };
+
+    return {
+      sistem: (src.sistem || src.system || src.tradicija || "").toString(),
+      url: (src.url || src.URL || src.link || "").toString(),
+      autor: (src.autor || "").toString(),
+      delo: (src.delo || "").toString(),
+      licenca: (src.licenca || "").toString()
+    };
+  }
+
+
+  /* ===================== v15.3 — USER DATA (My Symptoms + Overrides) ===================== */
+
+  async loadUserSymptoms() {
+    try {
+      const raw = localStorage.getItem("sinet_user_symptoms_v1");
+      this.userSymptoms = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(this.userSymptoms)) this.userSymptoms = [];
+    } catch (e) {
+      this.userSymptoms = [];
+    }
+  }
+
+  async saveUserSymptoms() {
+    try {
+      localStorage.setItem("sinet_user_symptoms_v1", JSON.stringify(this.userSymptoms || []));
+    } catch (e) {}
+  }
+
+  async loadOverrides() {
+    try {
+      const raw = localStorage.getItem("sinet_overrides_v1");
+      this.overrides = raw ? JSON.parse(raw) : {};
+      if (!this.overrides || typeof this.overrides !== "object") this.overrides = {};
+    } catch (e) {
+      this.overrides = {};
+    }
+  }
+
+  async saveOverrides() {
+    try { localStorage.setItem("sinet_overrides_v1", JSON.stringify(this.overrides || {})); } catch (e) {}
+  }
+
+  _deepMerge(base, patch) {
+    if (Array.isArray(base) || Array.isArray(patch)) return patch; // replace arrays
+    if (typeof base !== "object" || base === null) return patch;
+    if (typeof patch !== "object" || patch === null) return patch;
+
+    const out = { ...base };
+    for (const k of Object.keys(patch)) {
+      if (k in base) out[k] = this._deepMerge(base[k], patch[k]);
+      else out[k] = patch[k];
+    }
+    return out;
+  }
+
+  applyUserDataToCatalog() {
+    const core = Array.isArray(this.catalogCoreItems) ? this.catalogCoreItems.slice() : (this.catalogItems || []).slice();
+
+    // Apply overrides to core
+    let merged = core.map(it => {
+      const ov = this.overrides?.[it.id];
+      return ov ? this._deepMerge(it, ov) : it;
+    });
+
+    // Remove existing user items, then append latest
+    merged = merged.filter(it => !String(it.id||"").startsWith("usr-"));
+    const us = Array.isArray(this.userSymptoms) ? this.userSymptoms : [];
+    merged = merged.concat(us);
+
+    // De-duplicate by id
+    const seen = new Set();
+    const out = [];
+    for (const it of merged) {
+      const id = String(it?.id || "");
+      if (!id) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(it);
+    }
+
+    this.catalogItems = out;
+  }
+
+  renderUserSymptomsUI() {
+    // refresh from storage in case it changed
+    this.loadUserSymptoms().then(() => {
+      this.applyUserDataToCatalog();
+      this.renderUserSymptomsList();
+    });
+  }
+
+  renderUserSymptomsList() {
+    const box = this.ui.userSymptomsList || document.getElementById('user-symptoms-list');
+    if (!box) return;
+
+    const list = (this.userSymptoms || []);
+    if (!list.length) {
+      box.innerHTML = "<p style='text-align:center; color:#777;'>Još nema ličnih simptoma. Kliknite na dugme iznad da dodate. 🙂</p>";
+      return;
+    }
+
+    box.innerHTML = list.map(it => {
+      const short = (it.opis || "").toString().slice(0, 120);
+      return `
+        <div class="cat-item">
+          <div class="cat-main" onclick="app.openModal('${it.id}')">
+            <div class="cat-title">🧩 ${this.escapeHtml(it.simptom)}</div>
+            <div class="cat-sub">${this.escapeHtml(short || "Klikni za detalje.")}</div>
+          </div>
+          <div class="cat-actions">
+            <button class="cat-mini-btn" title="Izmeni" onclick="event.stopPropagation(); app.editUserSymptom('${it.id}')">✎ <span class="btn-label">Edit</span></button>
+            <button class="cat-mini-btn" title="Obriši" onclick="event.stopPropagation(); app.deleteUserSymptom('${it.id}')">🗑</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  showUserSymptomForm(editId = null) {
+    const host = this.ui.userSymptomForm || document.getElementById('user-symptom-form');
+    if (!host) return;
+    host.style.display = "block";
+
+    const existing = editId ? (this.userSymptoms || []).find(x => x.id === editId) : null;
+
+    const oblasts = Array.from(new Set((this.catalogItems || []).map(i => i.oblast).filter(Boolean))).sort();
+    const oblastOptions = ['MOJI SIMPTOMI', ...oblasts].slice(0, 80)
+      .map(o => `<option value="${this.escapeAttr(o)}"${(existing?.oblast||"MOJI SIMPTOMI")===o ? " selected":""}>${this.escapeHtml(o)}</option>`).join("");
+
+    const freqs = Array.isArray(existing?.frekvencije) ? existing.frekvencije : [{hz:"", svrha:"", izvor:""}];
+
+    const freqRows = freqs.map((f,i)=>`
+      <div style="display:flex; gap:8px; margin:6px 0;">
+        <input data-fhz="${i}" placeholder="Hz" value="${this.escapeAttr(f.hz ?? f.value ?? "")}" style="width:90px; padding:10px; border:1px solid #ddd; border-radius:8px;">
+        <input data-fsv="${i}" placeholder="Šta radi / svrha" value="${this.escapeAttr(f.svrha || f.funkcija || "")}" style="flex:1; padding:10px; border:1px solid #ddd; border-radius:8px;">
+      </div>
+      <input data-fsrc="${i}" placeholder="Izvor (link ili tekst)" value="${this.escapeAttr(f.izvor || "")}" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; margin-bottom:6px;">
+    `).join("");
+
+    host.innerHTML = `
+      <div style="background:#fff; border:1px solid #eee; border-radius:12px; padding:12px; margin-top:10px;">
+        <div style="font-weight:900; margin-bottom:8px;">${existing ? "✎ Izmeni simptom" : "➕ Novi simptom"}</div>
+
+        <label style="font-weight:900;">Naziv</label>
+        <input id="us_name" value="${this.escapeAttr(existing?.simptom || "")}" placeholder="npr. Reumatoidni artritis" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; margin:6px 0 10px 0;">
+
+        <label style="font-weight:900;">Oblast</label>
+        <select id="us_oblast" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; margin:6px 0 10px 0;">
+          ${oblastOptions}
+        </select>
+
+        <label style="font-weight:900;">Opis</label>
+        <textarea id="us_desc" rows="3" placeholder="Kratko objašnjenje..." style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; margin:6px 0 10px 0;">${this.escapeHtml(existing?.opis || "")}</textarea>
+
+	        <button class="btn-full" style="margin-top:-2px; background:#3498db;" onclick="app.userSymptomToAI()">🤖 Dopuni preko AI (prompt)</button>
+	        <p style="margin:8px 0 12px 0; color:#777; font-size:0.82rem;">
+	          AI će napraviti kompletan STL JSON. Posle kopiranja prompta, zalepi AI odgovor u AI Upitnik i klikni „Uvezi u Moji simptomi“.
+	        </p>
+
+        <div style="display:flex; gap:10px;">
+          <div style="flex:1;">
+            <label style="font-weight:900;">MKB-10 (opciono)</label>
+            <input id="us_mkb" value="${this.escapeAttr(existing?.mkb10 || "")}" placeholder="npr. M06.9" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; margin:6px 0 10px 0;">
+          </div>
+          <div style="flex:1;">
+            <label style="font-weight:900;">Izvor (opciono)</label>
+            <input id="us_src" value="${this.escapeAttr(existing?.izvor || "")}" placeholder="link ili tekst" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; margin:6px 0 10px 0;">
+          </div>
+        </div>
+
+        <div style="font-weight:900; margin:8px 0;">Frekvencije</div>
+        <div id="us_freqs">
+          ${freqRows}
+        </div>
+
+        <div style="display:flex; gap:10px; margin-top:10px;">
+          <button class="btn-full" style="flex:1; margin-top:0; background:#2ecc71;" onclick="app.addUserFreqRow()">➕ Dodaj frekvenciju</button>
+          <button class="btn-full" style="flex:1; margin-top:0; background:#8e44ad;" onclick="app.saveUserSymptom('${existing?.id || ""}')">💾 Sačuvaj</button>
+        </div>
+        <button class="btn-full" style="margin-top:10px; background:#eee; color:#333;" onclick="app.cancelUserSymptomForm()">Zatvori</button>
+      </div>
+    `;
+    this._userFormEditingId = existing?.id || null;
+  }
+
+  addUserFreqRow() {
+    const box = document.getElementById('us_freqs');
+    if (!box) return;
+    const i = box.querySelectorAll('[data-fhz]').length;
+    const row = document.createElement('div');
+    row.innerHTML = `
+      <div style="display:flex; gap:8px; margin:6px 0;">
+        <input data-fhz="${i}" placeholder="Hz" value="" style="width:90px; padding:10px; border:1px solid #ddd; border-radius:8px;">
+        <input data-fsv="${i}" placeholder="Šta radi / svrha" value="" style="flex:1; padding:10px; border:1px solid #ddd; border-radius:8px;">
+      </div>
+      <input data-fsrc="${i}" placeholder="Izvor (link ili tekst)" value="" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; margin-bottom:6px;">
+    `;
+    box.appendChild(row);
+  }
+
+  cancelUserSymptomForm() {
+    const host = this.ui.userSymptomForm || document.getElementById('user-symptom-form');
+    if (host) { host.style.display = "none"; host.innerHTML = ""; }
+    this._userFormEditingId = null;
+  }
+
+  _slugify(name) {
+    return this._norm(name).replace(/\s+/g, '-').replace(/-+/g,'-').replace(/^-|-$/g,'') || "symptom";
+  }
+
+  async saveUserSymptom(existingId = "") {
+    try {
+      const name = document.getElementById('us_name')?.value?.trim();
+      if (!name) return alert("Unesite naziv simptoma.");
+      const oblast = document.getElementById('us_oblast')?.value || "MOJI SIMPTOMI";
+      const desc = document.getElementById('us_desc')?.value || "";
+      const mkb10 = document.getElementById('us_mkb')?.value?.trim() || "";
+      const src = document.getElementById('us_src')?.value?.trim() || "";
+
+      // collect freqs
+      const hzInputs = Array.from(document.querySelectorAll('[data-fhz]'));
+      const freqs = hzInputs.map(inp => {
+        const i = inp.getAttribute('data-fhz');
+        const hz = inp.value?.trim();
+        const svrha = document.querySelector(`[data-fsv="${i}"]`)?.value?.trim() || "";
+        const izvor = document.querySelector(`[data-fsrc="${i}"]`)?.value?.trim() || "";
+        if (!hz && !svrha && !izvor) return null;
+        return { hz: hz ? Number(hz) : "", svrha, izvor };
+      }).filter(Boolean);
+
+      let id = existingId || ("usr-" + this._slugify(name));
+      if (!existingId) {
+        // ensure unique
+        const used = new Set((this.userSymptoms || []).map(x => x.id));
+        if (used.has(id)) {
+          let k = 2;
+          while (used.has(`${id}-${k}`)) k++;
+          id = `${id}-${k}`;
+        }
+      }
+
+      const item = {
+        id,
+        simptom: name,
+        oblast,
+        opis: desc,
+        mkb10,
+        izvor: src,
+        frekvencije: freqs
+      };
+
+      const list = Array.isArray(this.userSymptoms) ? this.userSymptoms : [];
+      const ix = list.findIndex(x => x.id === id || (existingId && x.id === existingId));
+      if (ix >= 0) list[ix] = item;
+      else list.unshift(item);
+      this.userSymptoms = list;
+
+      await this.saveUserSymptoms();
+      this.applyUserDataToCatalog();
+      this.renderUserSymptomsList();
+      this.cancelUserSymptomForm();
+      alert("Sačuvano ✅");
+
+      // refresh presets/catalog if needed
+      this.renderSystemPresets();
+      if (document.getElementById('page-catalog')?.classList?.contains('active')) this.showCatalogHome();
+    } catch (e) {
+      alert("Greška: " + (e?.message || e));
+    }
+  }
+
+  editUserSymptom(id) {
+    this.nav('mysymptoms');
+    this.showUserSymptomForm(id);
+  }
+
+  async deleteUserSymptom(id) {
+    if (!confirm("Obrisati ovaj simptom?")) return;
+    this.userSymptoms = (this.userSymptoms || []).filter(x => x.id !== id);
+    await this.saveUserSymptoms();
+    this.applyUserDataToCatalog();
+    this.renderUserSymptomsList();
+    this.renderSystemPresets();
+    if (document.getElementById('page-catalog')?.classList?.contains('active')) this.showCatalogHome();
+  }
+
+  /* ===================== v15.3 — MODAL ADVANCED (JSON / overrides) ===================== */
+
+  renderModalAdvanced(item) {
+    const host = document.getElementById('m-advanced');
+    if (!host) return;
+    const base = item || this._modalItem;
+    if (!base) { host.innerHTML = ""; return; }
+
+    const existing = this.overrides?.[base.id];
+    const json = JSON.stringify(existing ? this._deepMerge(base, existing) : base, null, 2);
+
+    host.innerHTML = `
+      <div style="background:#fff; border:1px solid #eee; border-radius:12px; padding:12px;">
+        <div style="color:#666; margin-bottom:8px;">
+          Ovde vidiš ceo slog (JSON). Možeš da napraviš lokalnu izmenu (override) bez menjanja kataloga.
+        </div>
+        <textarea id="m-adv-json" rows="8" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:10px;">${this.escapeHtml(json)}</textarea>
+
+        <div style="display:flex; gap:10px; margin-top:10px;">
+          <button class="btn-full" style="flex:1; margin-top:0; background:#2ecc71;" onclick="app.copyModalJSON()">📋 Kopiraj</button>
+          <button class="btn-full" style="flex:1; margin-top:0; background:#8e44ad;" onclick="app.saveModalOverride()">💾 Sačuvaj override</button>
+        </div>
+        <button class="btn-full" style="margin-top:10px; background:#eee; color:#333;" onclick="app.clearModalOverride()">♻ Vrati original</button>
+      </div>
+    `;
+  }
+
+  copyModalJSON() {
+    const ta = document.getElementById('m-adv-json');
+    if (!ta) return;
+    ta.select();
+    document.execCommand('copy');
+    alert("Kopirano ✅");
+  }
+
+  async saveModalOverride() {
+    try {
+      const ta = document.getElementById('m-adv-json');
+      if (!ta || !this._modalItem?.id) return;
+      const patch = JSON.parse(ta.value);
+      this.overrides = this.overrides || {};
+      this.overrides[this._modalItem.id] = patch;
+      await this.saveOverrides();
+      this.applyUserDataToCatalog();
+      alert("Override sačuvan ✅ (lokalno)");
+    } catch (e) {
+      alert("Neispravan JSON: " + (e?.message || e));
+    }
+  }
+
+  async clearModalOverride() {
+    if (!this._modalItem?.id) return;
+    if (!confirm("Obrisati lokalni override i vratiti original?")) return;
+    if (this.overrides) delete this.overrides[this._modalItem.id];
+    await this.saveOverrides();
+    this.applyUserDataToCatalog();
+    this.renderModalAdvanced(this._modalItem);
+    alert("Vraćeno ✅");
+  }
+
+  /* ===================== v15.3 — AI UPITNIK (prompt generator) ===================== */
+
+  prepareAIUI() {
+    // no-op for now; kept for future expansions
+  }
+
+  prefillAI(symptom = "", desc = "", note = "") {
+    try {
+      const s = document.getElementById('ai_symptom');
+      const d = document.getElementById('ai_desc');
+      if (s && symptom) s.value = symptom;
+      if (d && desc) d.value = desc;
+      if (note) console.log("AI note:", note);
+    } catch (_) {}
+  }
+
+  userSymptomToAI() {
+    const name = (document.getElementById('us_name')?.value || "").trim();
+    const desc = (document.getElementById('us_desc')?.value || "").trim();
+    if (!name) return alert("Prvo upiši naziv simptoma.");
+    this.prefillAI(name, desc);
+    this.nav('ai');
+    // Auto-generate prompt for convenience
+    setTimeout(() => this.generateAIPrompt(), 50);
+  }
+
+  generateAIPrompt() {
+    const symptom = (document.getElementById('ai_symptom')?.value || "").trim();
+    const desc = (document.getElementById('ai_desc')?.value || "").trim();
+    const age = (document.getElementById('ai_age')?.value || "").trim();
+    const sex = (document.getElementById('ai_sex')?.value || "nebitno").trim();
+    const med = (document.getElementById('ai_med')?.value || "").trim();
+    const goal = (document.getElementById('ai_goal')?.value || "").trim();
+
+    if (!symptom) return alert("Upiši simptom / problem.");
+
+    const prompt = `
+TI SI medicinsko-informativni asistent za SINET Audio Lekar.
+Tvoja uloga je da napraviš JEDAN slog simptoma u SINET STL v1.1 formatu (offline katalog), sa proverljivim izvorima.
+NE DIJAGNOSTIKUJ; NE DAVAJ hitne medicinske savete. Ako uočiš alarmantne simptome, u JSON dodaj kratku napomenu u polju "napomena" da korisnik potraži lekara.
+
+Korisnički unos:
+- Simptom: "${symptom}"
+- Opis: "${desc}"
+- Godine: "${age}"
+- Pol: "${sex}"
+- Dijagnoze/terapije/napomene: "${med}"
+- Cilj: "${goal}"
+
+ZADATAK:
+1) Vrati VALIDAN JSON (bez markdown-a, bez dodatnog teksta).
+2) Popuni sledeća polja (što detaljnije, ali kratko i jasno za starije osobe):
+   - id (slug, latinica, bez razmaka)
+   - uid: null
+   - naziv
+   - opis
+   - mkb10: { sifra, naziv/opis, izvor: { sistem, url } }  (ako nema URL — navedi naziv sistema)
+   - psihosomatika: { uzrok, lek, izvor: { autor, delo, url } }
+   - afirmacija: { tekst, autor, izvor: { autor, delo, url, napomena } }
+   - molitva: { tekst, izvor: { tradicija, url } }
+   - narodni_lek: { opis/tekst, napomena, izvor: { autor, delo, url } }
+   - akupresura: [ { tacka, naziv, lokacija, uputstvo, izvor: { sistem, url } } ]  (3–6 tačaka)
+   - frekvencije: [ { hz, naziv, opis, funkcija, izvor: { sistem, autor, delo, url, licenca } } ] (8–15 frekvencija)
+3) SVAKO polje koje ima "izvor" mora imati proverljiv izvor (URL ili autor+delo).
+4) Izlazni JSON format:
+{
+  "stl_version": "1.1",
+  "napomena": "...(opciono)...",
+  "simptom": {
+    ... polja iznad ...
+  }
+}
+
+VAŽNO: samo JSON.`;
+
+    const out = document.getElementById('ai_prompt');
+    if (out) out.value = prompt.trim();
+  }
+
+  copyAIPrompt() {
+    const out = document.getElementById('ai_prompt');
+    if (!out) return;
+    out.select();
+    document.execCommand('copy');
+    alert("Prompt kopiran ✅");
+  }
+
+  /* ===== v15.4 — AI JSON import into My Symptoms ===== */
+  _mkbToText(mkb) {
+    if (!mkb) return "";
+    if (typeof mkb === 'string') return mkb;
+    const code = (mkb.sifra || mkb.code || "").toString().trim();
+    const name = (mkb.naziv || mkb.opis || "").toString().trim();
+    if (code && name) return `${code} — ${name}`;
+    return code || name || "";
+  }
+
+  _srcToText(src) {
+    if (!src) return "";
+    if (typeof src === 'string') return src;
+    const url = (src.url || "").toString().trim();
+    if (url) return url;
+    const delo = (src.delo || "").toString().trim();
+    const autor = (src.autor || "").toString().trim();
+    if (delo && autor) return `${delo} — ${autor}`;
+    return delo || autor || (src.sistem || "") || "";
+  }
+
+  async importAIResult() {
+    const raw = (document.getElementById('ai_result')?.value || "").trim();
+    if (!raw) return alert("Zalepi AI odgovor (JSON) u polje ispod.");
+
+    let obj;
+    try {
+      obj = JSON.parse(raw);
+    } catch (e) {
+      return alert("Ne mogu da pročitam JSON. Proveri da AI nije vratio markdown ili dodatni tekst.");
+    }
+
+    const s = obj?.simptom || obj?.symptom || obj;
+    if (!s || typeof s !== 'object') return alert("JSON nema polje 'simptom'.");
+
+    const naziv = (s.naziv || s.name || s.simptom || "").toString().trim();
+    if (!naziv) return alert("Nedostaje 'naziv' u simptomu.");
+    const opis = (s.opis || "").toString();
+
+    const slug = (s.id || this._slugify(naziv)).toString().trim().replace(/^usr-/, '');
+    let id = `usr-${slug}`;
+
+    // Avoid collisions
+    const used = new Set((this.userSymptoms || []).map(x => x.id));
+    if (!used.has(id)) {
+      // ok
+    } else {
+      let k = 2;
+      while (used.has(`${id}-${k}`)) k++;
+      id = `${id}-${k}`;
+    }
+
+    // Frequencies
+    const freqsIn = Array.isArray(s.frekvencije) ? s.frekvencije : [];
+    const freqs = freqsIn.map((f) => {
+      const hz = Number(f?.hz ?? f?.value ?? 0) || 0;
+      if (!hz) return null;
+      const svrha = (f?.funkcija || f?.svrha || f?.opis || f?.naziv || "").toString();
+      const izvor = this._srcToText(f?.izvor);
+      return { hz, value: hz, svrha, izvor, enabled: f?.enabled !== false };
+    }).filter(Boolean);
+
+    const mkb10 = this._mkbToText(s.mkb10);
+
+    const holisticki = {
+      psihosomatika: s.psihosomatika || null,
+      afirmacija: s.afirmacija || null,
+      molitva: s.molitva || null,
+      narodni_lek: s.narodni_lek || null
+    };
+
+    // Acupressure: allow array/object
+    let akup = s.akupresura;
+    if (akup && !Array.isArray(akup) && typeof akup === 'object') akup = [akup];
+    if (!Array.isArray(akup)) akup = [];
+    akup = akup.map(p => ({
+      tacka: p.tacka || p.point || "",
+      naziv: p.naziv || "",
+      lokacija: p.lokacija || "",
+      uputstvo: p.uputstvo || p.how || "",
+      slika: p.slika,
+      marker: p.marker,
+      izvor: this._srcToText(p.izvor)
+    })).filter(p => p.tacka || p.naziv || p.lokacija || p.uputstvo);
+
+    const item = {
+      id,
+      simptom: naziv,
+      oblast: "MOJI SIMPTOMI",
+      opis,
+      mkb10,
+      holisticki,
+      akupresura: akup,
+      frekvencije: freqs
+    };
+
+    const list = Array.isArray(this.userSymptoms) ? this.userSymptoms : [];
+    list.unshift(item);
+    this.userSymptoms = list;
+    await this.saveUserSymptoms();
+    this.applyUserDataToCatalog();
+    this.renderUserSymptomsList();
+    this.renderSystemPresets();
+
+    alert("Uvezeno u 'Moji simptomi' ✅");
+    this.nav('mysymptoms');
+    setTimeout(() => this.openModal(id), 50);
+  }
+  /* ===================== UTIL ===================== */
+
+  escapeHtml(str) {
+    return (str || "").toString()
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  escapeAttr(str) {
+    // attribute-safe (already escapes quotes)
+    return this.escapeHtml(str);
+  }
+
+  getMKB10Code(mkb10) {
+    if (!mkb10) return "";
+    if (typeof mkb10 === "string") {
+      const s = mkb10.trim();
+      if (!s) return "";
+      // Prefer first token that looks like a code (e.g., M06.9)
+      const m = s.match(/[A-Z][0-9]{2}(?:\.[0-9])?/i);
+      return (m ? m[0] : s.split(/[\s—-]/)[0]).trim();
+    }
+    const code = (mkb10.code || mkb10.sifra || mkb10.sifra_mkb || "").toString().trim();
+    return code;
+  }
+
+  getMKB10Desc(mkb10) {
+    if (!mkb10 || typeof mkb10 === "string") return "";
+    const d = (mkb10.opis || mkb10.naziv || mkb10.description || "").toString().trim();
+    return d;
+  }
+
+
+  getMKB10Url(mkb10) {
+    if (!mkb10 || typeof mkb10 !== "object") return "";
+    const u = (mkb10?.izvor?.url || mkb10?.source?.url || mkb10?.izvor_url || "").toString().trim();
+    return u;
+  }
+
+  
+  formatMKB10Html(mkb10, opts = {}) {
+    const includeLink = opts.includeLink !== false;
+    const showEmpty = opts.showEmpty === true;
+
+    const empty = showEmpty ? `<span class="muted">nije popunjeno</span>` : "";
+    if (!mkb10) return empty;
+
+    if (typeof mkb10 === "string") {
+      const s = mkb10.trim();
+      return s ? this.escapeHtml(s) : empty;
+    }
+
+    const code = this.getMKB10Code(mkb10);
+    const desc = this.getMKB10Desc(mkb10);
+    const sys = (mkb10?.izvor?.sistem || mkb10?.izvor?.system || "").toString().trim();
+    const url = this.getMKB10Url(mkb10);
+
+    const main = (code && desc)
+      ? `${this.escapeHtml(code)} — ${this.escapeHtml(desc)}`
+      : this.escapeHtml(code || desc);
+
+    if (!main) return empty;
+
+    let html = main;
+    if (sys) html += ` <span class="muted" style="font-size:0.85rem; color:#666;">(${this.escapeHtml(sys)})</span>`;
+    if (includeLink && url) {
+      html += `<div class="muted" style="margin-top:6px; font-size:0.85rem; color:#666;">🔗 <a href="${this.escapeAttr(url)}" target="_blank" rel="noopener noreferrer">Izvor MKB-10</a></div>`;
+    }
+    return html;
+  }
+
+
+  // Backward-compatible wrapper name (used across UI)
+  formatMKB10(mkb10){
+    return this.formatMKB10Html(mkb10);
+  }
+
+  setModalFreqEnabled(index, enabled){
+    const i = Number(index);
+    if(!Number.isFinite(i)) return;
+    if(!this._modalItem || !this._modalItem.frekvencije || !this._modalItem.frekvencije[i]) return;
+    this._modalItem.frekvencije[i].enabled = !!enabled;
+
+    // live update modal totals
+    const enabledCount = (this._modalItem.frekvencije || []).filter(f=>f.enabled!==false).length;
+    const estMin = enabledCount * (Number(this._modalItem.freq_duration_min)||0);
+    const el = document.getElementById("m-proto");
+    if(el){
+      const loops = Number(this._modalItem.freq_loops)||1;
+      const totalMin = estMin * loops;
+      el.textContent = `${enabledCount} frekv. • ${this._modalItem.freq_duration_min} min x ${loops} = ~${totalMin} min`;
+    }
+  }
+
+  toggleNowList(){
+    if(!this.ui.nowPlayingPanel) return;
+    const open = this.ui.nowPlayingPanel.style.display !== "none";
+    this.ui.nowPlayingPanel.style.display = open ? "none" : "block";
+
+    // Jasno dugme (da ne izgleda kao "belo ništa")
+    const btnNowList = document.getElementById('btn-nowlist');
+    if (btnNowList) {
+      btnNowList.innerHTML = open ? '▸ FREKVENCIJE' : '▾ FREKVENCIJE';
+      btnNowList.setAttribute('aria-expanded', (!open).toString());
+    }
+
+    if(!open) this.renderNowPlayingList();
+  }
+
+  toggleFreqEnabled(index, enabled){
+    const i = Number(index);
+    if(!Number.isFinite(i)) return;
+    if(!this.audio || !this.audio.currentSequence) return;
+
+    this.audio.setEnabled(i, !!enabled);
+
+    const stats = this.audio.getStats ? this.audio.getStats() : (this.audio.getState ? this.audio.getState() : null);
+    if(stats && stats.currentIndex === i && !enabled){
+      this.audio.skipCurrent();
+    }
+    this.renderNowPlayingList();
+  }
+
+  renderNowPlayingList(statsOverride=null){
+    if(!this.ui.nowPlayingList) return;
+    if(!this.audio || !this.audio.currentSequence){
+      this.ui.nowPlayingList.innerHTML = "";
+      return;
+    }
+    const stats = statsOverride || (this.audio.getStats ? this.audio.getStats() : {currentIndex:0});
+    const seq = this.audio.currentSequence || [];
+    const cur = Number(stats.currentIndex||0);
+
+    let html = "";
+    for(let i=cur;i<seq.length;i++){
+      const f = seq[i] || {};
+      const hz = f.hz ?? f.value ?? "";
+      const desc = (f.svrha || f.funkcija || f.desc || f.note || "").toString();
+      const src = (f.izvor || f.src || "").toString();
+      const enabled = this.audio.isEnabled ? this.audio.isEnabled(i) : true;
+      html += `
+        <div class="np-row ${i===cur ? "active" : ""} ${enabled ? "" : "disabled"}" id="freq_${i}">
+          <label>
+            <input type="checkbox" ${enabled ? "checked" : ""} onchange="window.app.toggleFreqEnabled(${i}, this.checked)">
+            <div>
+              <div><b>${hz} Hz</b></div>
+              ${desc ? `<div class="muted">${desc}</div>` : ""}
+              ${src ? `<div class="muted">Izvor: ${src}</div>` : ""}
+            </div>
+          </label>
+        </div>`;
+    }
+    this.ui.nowPlayingList.innerHTML = html;
+  }
+
+
+  /* ===================== iOS / Background Hardening ===================== */
+
+  _ensurePlaybackSession() {
+    // iOS: start silent <audio> to keep the audio session alive for lock-screen/background.
+    if (this._isIOS) {
+      this._iosKeeper.start();
+
+      // iOS best-effort: route output through HTMLMediaElement (lock-screen/background may behave better)
+      try {
+        if (this.audio && typeof this.audio.enableMediaOutput === "function") {
+          const outEl = this._ensureIosMediaOutEl();
+          this.audio.enableMediaOutput(outEl);
+        }
+      } catch(_) {}
+
+      // One-time UX hint (dismissible)
+      try {
+        const dismissed = localStorage.getItem("sinet_ios_bg_hint") === "1";
+        if (!dismissed && !this._iosHintShown) {
+          this._iosHintShown = true;
+          this.showToast("⚠️ iOS može pauzirati zvuk u pozadini ili kada je ekran ugašen. Ako primetiš prekid, drži ekran uključen ili koristi 'Add to Home Screen' i pusti terapiju uz aktivnu sesiju.", {
+            timeoutMs: 9000,
+            actionLabel: "📘 Pomoć",
+            actionNav: "help",
+            action2Label: "Ne prikazuj više",
+            action2Onclick: "localStorage.setItem('sinet_ios_bg_hint','1')"
+          });
+        }
+      } catch(_) {}
+    }
+
+    // Keep AudioContext resumed while playing (best-effort)
+    if (this._ctxHeartbeat) return;
+    this._ctxHeartbeat = setInterval(() => {
+      this._resumeAudioContextBestEffort();
+    }, 1500);
+  }
+
+  _teardownPlaybackSession(reason="") {
+    if (this._ctxHeartbeat) {
+      clearInterval(this._ctxHeartbeat);
+      this._ctxHeartbeat = null;
+    }
+    if (reason === "stop" || reason === "pause") {
+      this._iosKeeper.stop();
+      try { if (this.audio && typeof this.audio.disableMediaOutput === "function") this.audio.disableMediaOutput(); } catch(_) {}
+      try { if (this._iosMediaOutEl) { this._iosMediaOutEl.pause(); this._iosMediaOutEl.srcObject = null; } } catch(_) {}
+    }
+  }
+
+  _resumeAudioContextBestEffort() {
+    try {
+      const ctx = this.audio?.audioContext || null;
+      if (ctx && ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
+    } catch(_) {}
+  }
+
+  _bindBackgroundRecovery() {
+    // When page becomes visible again, try to resume context (some iOS builds suspend it).
+    const kick = () => this._resumeAudioContextBestEffort();
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) kick();
+    });
+
+    window.addEventListener("pageshow", kick);
+    window.addEventListener("focus", kick);
+    window.addEventListener("resume", kick);
+  }
+
+  _setupMediaSession() {
+    try {
+      if (!("mediaSession" in navigator)) return;
+      const ms = navigator.mediaSession;
+
+      const safe = (fn) => () => { try { fn(); } catch(_) {} };
+
+      ms.setActionHandler?.("play", safe(() => {
+        if (!this.audio.isPlaying) this.togglePlayPause();
+      }));
+      ms.setActionHandler?.("pause", safe(() => {
+        if (this.audio.isPlaying) this.togglePlayPause();
+      }));
+      ms.setActionHandler?.("stop", safe(() => {
+        this.stopPlayer(true);
+      }));
+      ms.setActionHandler?.("previoustrack", safe(() => {
+        if (this.isPlaylistActive) this.playPlaylistItem(Math.max(0, this.currentPlaylistIndex - 1));
+      }));
+      ms.setActionHandler?.("nexttrack", safe(() => {
+        if (this.isPlaylistActive) this.playPlaylistItem(this.currentPlaylistIndex + 1);
+      }));
+
+      this._mediaSessionReady = true;
+    } catch(_) {
+      this._mediaSessionReady = false;
+    }
+  }
+
+  _updateMediaSessionMetadata(freqObj, stats) {
+    if (!this._mediaSessionReady) return;
+    try {
+      const hz = Number(freqObj?.value ?? freqObj?.hz) || 0;
+      const symptom = (this.selectedItem?.simptom || "SINET Terapija").toString();
+      const pos = (Number(stats?.currentIndex) || 0) + 1;
+      const total = Number(stats?.totalItems) || 0;
+
+      const title = hz ? `${hz} Hz  (${pos}/${total})` : `SINET Terapija (${pos}/${total})`;
+      const artist = "SINET Audio Lekar";
+      const album = symptom;
+
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title,
+        artist,
+        album
+      });
+    } catch(_) {}
+  }
+
+  formatTime(sec) {
+    const s = Math.max(0, Math.floor(Number(sec)||0));
+    const m = Math.floor(s/60);
+    const r = s%60;
+    return `${m}:${r<10 ? "0"+r : r}`;
+  }
+}
+
+const app = new App();
+window.addEventListener('DOMContentLoaded', () => app.init());
+window.app = app;
+window.nav = (id) => app.nav(id);
+
+window.playFromModal = () => app.playFromModal();
+window.toggleFavoriteFromModal = () => app.toggleFavoriteFromModal();
+window.addToPlaylistFromModal = () => app.addToPlaylistFromModal();
+window.closeModal = () => app.closeModal();
+window.openAcupressureViewer = (itemId, idx) => app.openAcupressureViewer(itemId, idx);
+window.closeAcupressureViewer = () => app.closeAcupressureViewer();
+
+
+// === SINET v14.7 – GLOBAL UI HOOKS (for inline onclick in index.html) ===
+(function(){
+  const getApp = () => window.app || window.__app || null;
+
+  window.startProtocol = function(){
+    const a = getApp();
+    if (a && typeof a.startProtocol === 'function') return a.startProtocol();
+    console.warn("startProtocol(): app not ready");
+  };
+
+  window.togglePause = function(){
+    const a = getApp();
+    if (a && typeof a.togglePlayPause === 'function') return a.togglePlayPause();
+    console.warn("togglePause(): app not ready");
+  };
+
+  window.stopAudio = function(){
+    const a = getApp();
+    if (a && typeof a.stopPlayer === 'function') return a.stopPlayer(true);
+    // fallback: try audio engine directly
+    if (a && a.audio && typeof a.audio.stop === 'function') return a.audio.stop();
+    console.warn("stopAudio(): app not ready");
+  };
+
+  window.resetAppCache = async function(){
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const r of regs) await r.unregister();
+      }
+      if (window.caches && typeof caches.keys === 'function') {
+        const keys = await caches.keys();
+        for (const k of keys) await caches.delete(k);
+      }
+    } catch (e) {
+      console.warn("resetAppCache failed", e);
+    }
+    // Hard reload
+    try { location.reload(); } catch(_) {}
+  };
+})();
+
+
+
+// Global helpers for inline HTML onclick
+window.toggleNowList = () => window.app && window.app.toggleNowList();
+window.clearPlaylist = () => window.app && window.app.clearPlaylist();
+window.doSearch = (v) => window.app && window.app.filterCatalog(v);
+window.generateAIPrompt = () => window.app && window.app.generateAIPrompt();
+window.copyAIPrompt = () => window.app && window.app.copyAIPrompt();
+window.exportCatalogTxt = (mode) => window.app && window.app.exportCatalogTxt(mode);
+window.exportCatalogSTL = (mode) => window.app && window.app.exportCatalogSTL(mode);

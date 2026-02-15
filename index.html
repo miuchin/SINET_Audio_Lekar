@@ -2,340 +2,532 @@
 <html lang="sr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SINET Audio Lekar</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>SINET Audio Lekar v15.4.8.2</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#4A90E2">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     <link rel="stylesheet" href="css/main.css">
     <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/3063/3063822.png">
 
     <style>
-        /* Specijalni stilovi za Posvetu i Help */
-        .dedication-box { 
-            margin-top: 10px; 
-            padding: 10px; 
-            border-top: 1px solid rgba(0,0,0,0.1);
-            background-color: rgba(255,255,255,0.5); /* Blaga pozadina da se istakne */
-            border-radius: 8px;
-        }
-        .dedication-main { font-family:'Georgia',serif; font-style:italic; font-size:1.1rem; color:#4A90E2; margin-bottom:5px; font-weight:bold; }
-        .dedication-sub { font-family:'Georgia',serif; font-size:0.9rem; opacity:0.9; color:#333; }
+        /* --- ORIGINAL STYLES RESTORED --- */
+        :root { --primary: #4A90E2; --dark: #2c3e50; --accent: #e67e22; --bg: #f8f9fa; --success: #27ae60; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; background: var(--bg); color: #333; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+        header { background: var(--primary); color: white; padding: 12px 15px; padding-top: calc(12px + env(safe-area-inset-top)); padding-left: calc(15px + env(safe-area-inset-left)); padding-right: calc(15px + env(safe-area-inset-right)); display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.15); z-index: 100; flex-shrink: 0; }
+        .logo { font-size: 1.2rem; font-weight: bold; letter-spacing: 0.5px; }
         
-        /* RESPONSIVE HELP */
-        .modal-content {
-            max-height: 85vh;       
-            overflow-y: auto;       
-            -webkit-overflow-scrolling: touch; 
+        /* iOS BUTTON */
+        #unlock-audio-btn { font-size: 0.85rem; padding: 8px 12px; background: #2ecc71; border: none; color: white; border-radius: 10px; font-weight: 900; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; }
+        .hamburger-btn { background: none; border: none; color: white; font-size: 1.8rem; cursor: pointer; padding: 0 5px; }
+        .icon-btn { background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.22); color: white; border-radius: 10px; padding: 8px 10px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+        .icon-btn:active { transform: scale(0.98); }
+        .icon-label { display:none; font-size: 0.85rem; }
+        @media (min-width: 520px) { .icon-label { display:inline; } }
+
+
+        .nav-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 200; display: none; backdrop-filter: blur(2px); }
+        .nav-content { background: white; width: 280px; height: 100%; padding: 20px; box-shadow: 2px 0 10px rgba(0,0,0,0.2); display: flex; flex-direction: column; animation: slideRight 0.3s; }
+        @keyframes slideRight { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+        .nav-menu { list-style: none; padding: 0; margin-top: 20px; }
+        .nav-menu li { margin-bottom: 5px; }
+        .nav-menu a { text-decoration: none; color: #444; font-weight: 600; font-size: 1rem; display: block; padding: 12px; border-radius: 8px; transition: 0.2s; border-left: 4px solid transparent; }
+        .nav-menu a.active { background: #eaf6ff; color: var(--primary); border-left-color: var(--primary); }
+
+        main { flex: 1; overflow-y: auto; padding: 15px; position: relative; padding-bottom: 160px; }
+        .section { display: none; animation: fadeIn 0.3s; }
+        .section.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* PRESET STYLE SA SLIKE (LISTA) */
+        .preset-category-title { 
+            color: var(--primary); font-size: 0.9rem; font-weight: bold; text-transform: uppercase; 
+            margin: 25px 0 10px 0; border-bottom: 2px solid #e0e0e0; padding-bottom: 5px; 
         }
-        .help-section-title { 
-            font-weight:bold; 
-            color:#4A90E2; 
-            margin-top:20px; 
-            border-bottom:2px solid #eee; 
-            padding-bottom:5px; 
-            font-size:1.1rem; 
-            text-transform: uppercase;
+        .preset-item {
+            background: white; border: 1px solid #eee; border-left: 4px solid var(--success);
+            padding: 12px 15px; margin-bottom: 8px; border-radius: 6px;
+            display: flex; justify-content: space-between; align-items: center;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer; transition: 0.2s;
         }
-        .help-list { list-style: disc; padding-left: 20px; margin-top: 10px; }
-        .help-list li { margin-bottom: 10px; font-size: 0.95rem; line-height: 1.5; text-align: left;}
-        .step-num { 
-            display:inline-block; background:#4A90E2; color:white; 
-            width:20px; height:20px; border-radius:50%; text-align:center; 
-            font-size:0.8rem; margin-right:5px; 
-        }
+        .preset-item:active { transform: scale(0.98); background: #f0f0f0; }
+        .preset-info h4 { margin: 0 0 3px 0; font-size: 0.95rem; color: #333; }
+        .preset-info p { margin: 0; font-size: 0.75rem; color: #777; }
+        .play-icon { font-size: 1.2rem; color: var(--success); }
+
+        /* PLAYLIST & PLAYER */
+        .playlist-item { background: white; border-left: 4px solid #e67e22; padding: 12px; margin-bottom: 8px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .playlist-item.playing { background: #eafaf1; border-left-color: var(--success); border: 1px solid var(--success); }
+
+        .player-dock { position: fixed; bottom: 0; left: 0; width: 100%; background: var(--dark); color: white; padding: 15px; box-shadow: 0 -2px 15px rgba(0,0,0,0.2); z-index: 150; display: none; }
+        .player-info { margin-bottom: 10px; text-align: center; }
+        .track-title { font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 1rem; margin-bottom: 5px; }
+        .timers-row { display: flex; justify-content: space-between; font-family: monospace; font-size: 0.9rem; color: #ddd; margin-bottom: 5px; }
+        .total-protocol-timer { text-align: center; font-size: 0.85rem; color: var(--accent); font-weight: bold; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 5px; margin-top: 5px; display: none; }
+        .controls { display: flex; gap: 10px; }
+        .btn-ctrl { flex: 1; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; color: white; font-size: 1rem; }
+        .btn-stop { background: #c0392b; }
+        .btn-pause { background: #f39c12; }
+
+        .btn-full { width: 100%; padding: 15px; background: var(--success); color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 1rem; margin-top: 10px; cursor: pointer; display:block; text-align:center; text-decoration:none; }
+        
+        /* HOLISTIKA */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 300; display: none; justify-content: center; align-items: end; }
+        .modal-content { background: white; width: 100%; max-height: 85vh; border-radius: 20px 20px 0 0; padding: 25px; overflow-y: auto; animation: slideUp 0.3s; }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .holistic-box { background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #8e44ad; }
+        .mkb-badge { background: #eee; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; margin-left: 5px; }
+
+        /* MODAL SUMMARY (elder-friendly) */
+        .modal-summary { display: grid; grid-template-columns: 1fr; gap: 10px; margin: -6px 0 12px 0; }
+        @media (min-width: 560px) { .modal-summary { grid-template-columns: 1fr 1fr; } }
+        .summary-box { background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 10px 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+        .summary-title { font-size: 0.75rem; font-weight: 900; color: #888; letter-spacing: 0.4px; text-transform: uppercase; margin-bottom: 6px; }
+        .summary-body { color: #444; font-size: 0.95rem; line-height: 1.25; }
+
+        /* FREQUENCY CONTROLS (buttons on top) */
+        .freq-controls { background: rgba(255,255,255,0.75); border: 1px solid #ddd; border-radius: 12px; padding: 10px; margin: 10px 0; position: sticky; top: 0; z-index: 2; backdrop-filter: blur(2px); }
+        .freq-actions { display: flex; gap: 10px; }
+        .freq-duration { margin-top: 8px; font-size: 0.95rem; color: #333; }
+        .freq-listwrap { margin-top: 8px; border: 1px solid #eee; border-radius: 12px; padding: 10px; background: #fafafa; max-height: 40vh; overflow: auto; }
+
+        .dedication-box { margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0,0,0,0.1); text-align:center; }
+        .dedication-main { font-family:'Georgia',serif; font-style:italic; font-size:1rem; color:#4A90E2; font-weight:bold; }
+        .dedication-sub { font-family:'Georgia',serif; font-size:0.85rem; opacity:0.8; color:#333; }
+
+
+        /* Quick Start (modal) */
+        .quickstart-bar { display:flex; gap:10px; margin: 10px 0 12px 0; }
+        .qs-btn { flex:1; padding: 14px 12px; border:none; border-radius: 12px; font-weight: 900; font-size: 1rem; color: #fff; cursor: pointer; }
+        .qs-btn:active { transform: scale(0.98); }
+        .qs-play { background: var(--success); }
+        .qs-add { background: var(--accent); }
+
+        
+
+        .qs-fav { background: #8e44ad; }
+        /* Seniors: always show labels on action buttons */
+        .btn-label { display:inline !important; font-size: 0.78rem; }
+        .cat-actions button { min-width: 108px; justify-content: center; }
+        @media (max-width: 420px) { .cat-actions button { min-width: 96px; } }
+/* Catalog action buttons: show meaning, not just icons */
+        .cat-actions { display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
+        .btn-add-playlist, .cat-mini-btn { display:inline-flex; align-items:center; gap:6px; border:none; border-radius: 10px; padding: 8px 10px; font-weight: 900; cursor: pointer; }
+        .btn-add-playlist { background: var(--accent); color: #fff; }
+        .cat-mini-btn { background: #f1f3f5; color: #222; border: 1px solid #e2e6ea; }
+        .btn-label { font-size: 0.85rem; }
+        @media (max-width: 420px) { .btn-label { display:none; } }
+
+        /* Toast (confirmation) */
+        .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 180px; z-index: 999; background: rgba(20,20,20,0.95); color: #fff; padding: 12px 12px; border-radius: 14px; box-shadow: 0 10px 25px rgba(0,0,0,0.28); display:flex; gap: 10px; align-items:center; max-width: 92vw; }
+        .toast-msg { font-weight: 900; }
+        .toast-btn { background: var(--primary); border:none; color:#fff; padding: 8px 10px; border-radius: 10px; font-weight: 900; cursor: pointer; }
+        .toast-x { background: transparent; border: 1px solid rgba(255,255,255,0.35); color:#fff; padding: 6px 10px; border-radius: 10px; cursor: pointer; }
+
+
     </style>
 </head>
 <body>
 
-    <header class="app-header">
-        <div class="logo-area">
-            <h1>SINET Audio</h1>
-            <button id="unlock-audio-btn" style="font-size:0.7rem; padding:4px; background:#27AE60; border:none; color:white; border-radius:4px; margin-left:10px;">🔊 AKTIVIRAJ</button>
+    <header>
+        <div class="logo-area" style="display:flex; align-items:center;">
+            <span class="logo">SINET Audio</span>
+            <button id="unlock-audio-btn" onclick="app.unlockAudio()" title="iOS/Safari: prvo aktiviraj audio">🔊 AKTIVIRAJ</button>
         </div>
-        <button id="menu-btn" class="hamburger-btn"><span></span><span></span><span></span></button>
+        <div class="header-actions" style="display:flex; gap:8px; align-items:center;">
+            <button class="icon-btn" onclick="app.goBack()" aria-label="Nazad" title="Nazad">←<span class="icon-label">Nazad</span></button>
+            <button class="icon-btn" onclick="nav('home')" aria-label="Početna" title="Početna">🏠<span class="icon-label">Početna</span></button>
+            <button class="icon-btn" onclick="nav('catalog')" aria-label="Katalog" title="Katalog">📚<span class="icon-label">Katalog</span></button>
+            <button class="icon-btn" onclick="nav('playlist')" aria-label="Moji protokoli" title="Moji protokoli">🎵<span class="icon-label">Lista</span></button>
+            
+            <button class="icon-btn" onclick="nav('favorites')" aria-label="Favoriti" title="Favoriti">⭐<span class="icon-label">Favoriti</span></button>
+<button class="hamburger-btn" onclick="toggleMenu()" aria-label="Meni" title="Meni">☰</button>
+        </div>
     </header>
 
-    <nav id="main-nav" class="nav-overlay">
+    <div id="nav-overlay" class="nav-overlay" onclick="if(event.target===this) toggleMenu()">
         <div class="nav-content">
-            <h2>Meni</h2>
-            <ul>
-                <li><a href="#" onclick="UI.showSection('home')">🏠 Početna</a></li>
-                <li><a href="#" onclick="UI.showSection('catalog')">📚 Katalog Simptoma</a></li>
-                <li><a href="#" onclick="UI.showSection('favorites')">⭐ Moji Favoriti</a></li>
-                <li><a href="#" onclick="UI.showSection('playlist')">🎵 Moja Playlista</a></li>
+            <h2 style="color:var(--primary); margin-top:0; border-bottom:1px solid #eee; padding-bottom:10px;">Meni</h2>
+            <ul class="nav-menu">
+                <li><a href="#" onclick="nav('home')" class="active">🏠 Početna</a></li>
+                <li><a href="#" onclick="nav('catalog')">📚 Katalog Simptoma</a></li>
+                <li><a href="#" onclick="nav('playlist')">🎵 Moji Protokoli <span id="badge-pl" style="background:orange; color:white; padding:2px 6px; border-radius:10px; font-size:0.8rem; display:none;">0</span></a></li>
+                <li><a href="#" onclick="nav('favorites')">⭐ Moji Favoriti</a></li>
+                <li><a href="#" onclick="nav('mysymptoms')">➕ Moji Simptomi</a></li>
+                <li><a href="#" onclick="nav('ai')">🤖 AI Upitnik</a></li>
                 <hr style="border:0; border-top:1px solid #eee; margin:10px 0;">
-                <li><a href="#" onclick="app.toggleHelp()">📖 KORISNIČKO UPUTSTVO</a></li>    
-                <li><a href="#" onclick="UI.showSection('settings')">⚙️ Podešavanja</a></li>
+                <li><a href="#" onclick="nav('help')">📖 KORISNIČKO UPUTSTVO</a></li>
+                <li><a href="#" onclick="nav('settings')">⚙️ Podešavanja</a></li>
             </ul>
-            <div style="margin-top:auto; font-size:0.8rem; color:#888; text-align:center;">
-                <p>Architect: miuchins</p>
-                <p>Co-author: SINET AI</p>
+            <div style="margin-top:auto; font-size:0.8rem; color:#999; text-align:center;">
+                v15.4.8.2<br>miuchins & SINET AI
             </div>
-            <button id="close-menu-btn" class="close-btn">ZATVORI MENI</button>
+            <button onclick="toggleMenu()" style="width:100%; padding:10px; margin-top:10px; background:#eee; border:none; border-radius:5px;">ZATVORI</button>
         </div>
-    </nav>
+    </div>
 
-    <main id="app-container">
-        
-        <section id="section-home" class="active-section">
-            <div class="welcome-msg">
-                <h2>🏥 SINET Brza Pomoć</h2>
-                <p>Sistemski Preseti (Proverene Terapije)</p>
-                
+    <main>
+        <div id="page-home" class="section active">
+            <div class="welcome-card" style="background:white; padding:20px; border-radius:12px; margin-bottom:15px; box-shadow:0 2px 5px rgba(0,0,0,0.05); text-align:center;">
+                <h2 style="color:var(--primary); margin:0;">SINET Brza Pomoć</h2>
+                <p style="color:#666;">Holistički Sistem Frekvencija</p>
                 <div class="dedication-box">
                     <p class="dedication-main">❤️ Posvećeno mojoj Veri, mome Srećku!</p>
                     <p class="dedication-sub">Uz svo poštovanje i svu ljubav.</p>
                 </div>
             </div>
 
-            <div id="pwa-install-promo" style="display:none; background:#e3f2fd; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #2196f3; position:relative;">
-                <span id="close-install-btn" style="position:absolute; top:5px; right:10px; font-size:1.2rem; cursor:pointer; color:#0d47a1;">&times;</span>
-                <p style="margin-bottom:10px; font-weight:bold; color:#0d47a1;">📲 Instalirajte aplikaciju za rad bez interneta!</p>
-                <button id="pwa-install-btn" class="ctrl-btn play" style="width:100%;">INSTALIRAJ SADA</button>
+            <div id="pwa-install-promo" style="display:none; background:#e3f2fd; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #2196f3; text-align:center;">
+                <p style="margin:0 0 10px 0; font-weight:bold; color:#0d47a1;">📲 Instalirajte aplikaciju za rad bez interneta!</p>
+                <button id="pwa-install-btn" class="btn-full" style="margin-top:0; padding:10px;">INSTALIRAJ SADA</button>
             </div>
 
-            <div id="system-presets-container"><p style="text-align:center; color:#999;">Učitavanje baze...</p></div>
+            <div id="loader" style="text-align:center; padding:20px; background:#fff3cd; border-radius:8px; color:#856404; margin-bottom:20px;">
+                ⏳ Učitavam katalog iz /data/...
+            </div>
+
+            <div id="presets-container"></div>
             
-            <div class="action-row">
-                <button class="btn-secondary" onclick="UI.showSection('catalog')">🔍 Pretraži Kompletan Katalog</button>
-            </div>
-        </section>
+            <button class="btn-full" style="background:var(--primary);" onclick="nav('catalog')">🔍 OTVORI KOMPLETAN KATALOG</button>
+        </div>
 
-        <section id="section-catalog" style="display:none;">
-            <h2>Katalog Simptoma</h2>
-            <div class="search-container-sticky">
-                <input type="text" id="search-input" class="search-box" placeholder="🔍 Pretraga (npr. Glava, Zubi)..." onkeyup="app.filterCatalog()">
+        <div id="page-catalog" class="section">
+            <div style="position:sticky; top:0; background:var(--bg); padding-bottom:10px; z-index:10;">
+                <input type="text" id="search-input" placeholder="🔍 Pretraži (naziv, opis, MKB-10)..." oninput="doSearch(this.value)" style="width:100%; padding:15px; border:1px solid #ddd; border-radius:8px; font-size:1rem; box-shadow:0 2px 5px rgba(0,0,0,0.05);">
             </div>
-            <div id="catalog-accordion"></div>
-        </section>
+            <div class="catalog-actions" style="display:flex; gap:10px; margin:10px 0 12px 0;">
+                <button class="btn-full" style="flex:1; margin-top:0; padding:10px; background:#2ecc71;" onclick="nav('mysymptoms')">➕ Moj simptom</button>
+                <button class="btn-full" style="flex:1; margin-top:0; padding:10px; background:#8e44ad;" onclick="nav('ai')">🤖 AI upitnik</button>
+            </div>
+            <div class="catalog-actions" style="display:flex; gap:10px; margin:0 0 12px 0; flex-wrap:wrap;">
+                <button class="btn-full" style="flex:1; margin-top:0; padding:10px; background:#16a085;" onclick="exportCatalogSTL('view')">🧬 Izvoz STL JSON (prikaz)</button>
+                <button class="btn-full" style="flex:1; margin-top:0; padding:10px; background:#0b5345;" onclick="exportCatalogSTL('all')">🧬 Izvoz STL JSON (SVE)</button>
+            </div>
+            <div class="catalog-actions" style="display:flex; gap:10px; margin:0 0 12px 0; flex-wrap:wrap;">
+                <button class="btn-full" style="flex:1; margin-top:0; padding:10px; background:#2980b9;" onclick="exportCatalogTxt('view')">📄 Izvoz TXT (prikaz) — legacy</button>
+                <button class="btn-full" style="flex:1; margin-top:0; padding:10px; background:#34495e;" onclick="exportCatalogTxt('all')">📄 Izvoz TXT (sve) — legacy</button>
+            </div>
+            <div class="catalog-hint" style="background:#fff; border:1px solid #eee; padding:12px; border-radius:10px; color:#555; margin-bottom:10px;">
+                👇 Prvo izaberite <b>oblast</b> (kartice), ili koristite pretragu iznad.
+            </div>
+            <div id="catalog-oblast-grid" class="oblast-grid"></div>
+            <div id="catalog-list"></div>
+        </div>
 
-        <section id="section-favorites" style="display:none;">
+        <div id="page-playlist" class="section">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h2>🎵 Moji Protokoli</h2>
+                <button onclick="clearPlaylist()" style="color:#c0392b; background:none; border:none; font-weight:bold;">🗑️ Obriši sve</button>
+            </div>
+            <div id="playlist-container">
+                <p style="text-align:center; color:#999; margin-top:40px;">Lista je prazna.<br>Dodajte terapije iz kataloga klikom na (+).</p>
+            </div>
+            <div id="pl-actions" style="display:none;">
+                <div style="background:white; padding:10px; border-radius:8px; margin-bottom:10px; text-align:center;">
+                    Ukupno trajanje: <strong id="pl-total-duration">0 min</strong>
+                </div>
+                <button class="btn-full" onclick="startProtocol()">▶ POKRENI PROTOKOL</button>
+            </div>
+        </div>
+
+        <div id="page-favorites" class="section">
             <h2>⭐ Moji Favoriti</h2>
             <div id="favorites-list"></div>
-            <button class="btn-secondary" onclick="UI.showSection('catalog')">➕ Dodaj novi favorit</button>
-        </section>
+        </div>
 
-        <section id="section-playlist" style="display:none;">
-            <h2>🎵 Moja Playlista</h2>
-            <p style="color:#666; font-size:0.9rem;">Redosled vaših terapija:</p>
-            <div id="playlist-container" style="margin:20px 0; min-height:100px;"></div>
-            <div class="action-row">
-                <button id="btn-play-playlist" class="ctrl-btn play" style="width:100%; display:none;" onclick="app.startPlaylist()">▶ PUSTI SVE REDOM</button>
-                <button class="btn-secondary" onclick="app.clearPlaylist()" style="border-color:#C0392B; color:#C0392B; margin-top:10px;">🗑️ Obriši Listu</button>
+
+        <div id="page-mysymptoms" class="section">
+            <h2>➕ Moji Simptomi</h2>
+            <div class="welcome-card" style="text-align:left;">
+                <p style="color:#666; margin-top:0;">Dodajte svoje lične simptome i frekvencije. Podaci ostaju samo na ovom uređaju (offline) 🙂</p>
+                <button class="btn-full" onclick="app.showUserSymptomForm()">➕ DODAJ LIČNI SIMPTOM</button>
+                <div id="user-symptom-form" style="display:none; margin-top:12px;"></div>
             </div>
-        </section>
+            <div id="user-symptoms-list"></div>
+        </div>
 
-        <section id="section-details" style="display:none;">
-            <div class="editor-header">
-                <div style="display:flex; justify-content:space-between; align-items:start;">
-                    <div style="flex:1">
-                        <h2 id="detail-title">Naziv</h2>
-                        <p id="detail-desc">Opis...</p>
-                    </div>
-                    <div style="display:flex; gap:10px;">
-                        <button id="fav-toggle-btn" class="fav-btn" onclick="app.toggleCurrentFavorite()">♡</button>
-                        <button class="fav-btn" onclick="app.addToPlaylistFromEditor()" style="font-size:1.5rem;" title="Dodaj u listu">➕</button>
-                    </div>
-                </div>
-                <div class="timer-control">
-                    <label>Trajanje po frekvenciji: <strong id="timer-val-display">5 min</strong></label>
-                    <input type="range" id="duration-slider" class="timer-slider" min="3" max="20" value="5" step="1" oninput="app.updateDuration(this.value)">
-                </div>
-                <div class="action-row" style="margin-top:0;">
-                    <button class="ctrl-btn play" style="width:100%" onclick="app.startTherapyFromEditor()">▶ POKRENI TERAPIJU</button>
-                </div>
-            </div>
-            <h3>Lista Frekvencija</h3>
-            <ul id="editor-freq-list" class="freq-list-editor"></ul>
-            <br>
-            <button class="btn-secondary" onclick="UI.showSection('catalog')">⬅ Nazad na Katalog</button>
-        </section>
+        <div id="page-ai" class="section">
+            <h2>🤖 AI Upitnik</h2>
+            <div class="welcome-card" style="text-align:left;">
+                <p style="color:#666; margin-top:0;">
+                    Ako ne nalazite simptom u katalogu, popunite kratki upitnik i kopirajte prompt u AI chat.
+                    AI će vratiti odgovor u <b>SINET STL</b> formatu, kao da je u našem katalogu.
+                </p>
 
-        <section id="section-player" style="display:none;">
-            <div class="player-card">
-                <h3 id="current-symptom-name">Terapija</h3>
-                <div class="frequency-display">
-                    <span id="current-hz">0 Hz</span>
-                    <span id="current-desc">Priprema...</span>
-                </div>
-                <div class="timer-container">
-                    <div class="progress-bar-bg">
-                        <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+                <label style="font-weight:bold;">1) Simptom / problem</label>
+                <input id="ai_symptom" placeholder="npr. Vitamini i Minerali, Relaks..." style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; margin:6px 0 10px 0;">
+
+                <label style="font-weight:bold;">2) Kratak opis (šta osećate)</label>
+                <textarea id="ai_desc" rows="3" placeholder="Kada je počelo, gde boli, šta pogoršava ili smanjuje..." style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; margin:6px 0 10px 0;"></textarea>
+
+                <div style="display:flex; gap:10px;">
+                    <div style="flex:1;">
+                        <label style="font-weight:bold;">Godine</label>
+                        <input id="ai_age" placeholder="npr. 72" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; margin:6px 0 10px 0;">
                     </div>
-                    <div class="time-labels">
-                        <span id="time-elapsed">00:00</span>
-                        <span id="time-total">00:00</span>
+                    <div style="flex:1;">
+                        <label style="font-weight:bold;">Pol</label>
+                        <select id="ai_sex" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; margin:6px 0 10px 0;">
+                            <option value="nebitno">nebitno</option>
+                            <option value="muški">muški</option>
+                            <option value="ženski">ženski</option>
+                        </select>
                     </div>
                 </div>
-                <div class="controls-row">
-                    <button id="btn-stop" class="ctrl-btn stop">⏹ STOP</button>
-                    <button id="btn-play-pause" class="ctrl-btn play">⏸ PAUZA</button>
-                </div>
-                <div id="playlist-status" style="margin-top:15px; font-weight:bold; color:#4A90E2; display:none; text-align:center;">
-                    🎵 Playlista: <span id="playlist-counter">1/3</span>
-                </div>
-                <div id="resume-notify" class="resume-box" style="display:none">
-                    <p>Nastaviti gde ste stali?</p>
-                    <button>DA, NASTAVI</button>
-                </div>
-            </div>
-            <button class="btn-secondary" style="margin-top:20px" onclick="UI.showSection('details')">⚙ Izmeni Postavke</button>
-        </section>
 
-        <section id="section-settings" style="display:none;">
-            <h2>⚙️ Podešavanja</h2>
-            <div class="settings-card">
-                <h3>Izgled</h3>
-                <div class="setting-row">
-                    <span>🌙 Tamna Tema</span>
-                    <label class="switch"><input type="checkbox" id="theme-toggle" onchange="app.toggleTheme(this.checked)"><span class="slider round"></span></label>
+                <label style="font-weight:bold;">3) Dijagnoze / terapije / napomene (opciono)</label>
+                <textarea id="ai_med" rows="3" placeholder="npr. visok pritisak, lekovi, alergije, pacemaker..." style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; margin:6px 0 10px 0;"></textarea>
+
+                <label style="font-weight:bold;">4) Cilj (šta želite da postignete)</label>
+                <textarea id="ai_goal" rows="2" placeholder="npr. smanjenje bola, bolji san, oporavak..." style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; margin:6px 0 10px 0;"></textarea>
+
+                <button class="btn-full" style="background:#8e44ad;" onclick="app.generateAIPrompt()">🧠 GENERIŠI PROMPT</button>
+
+                <div style="margin-top:10px;">
+                    <label style="font-weight:bold;">Prompt (kopiraj u AI chat)</label>
+                    <textarea id="ai_prompt" rows="10" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; margin-top:6px;"></textarea>
+                    <button class="btn-full" style="background:#2ecc71;" onclick="app.copyAIPrompt()">📋 KOPIRAJ PROMPT</button>
+                    <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+                        <button class="btn-full" style="background:#16a085; flex:1; min-width:220px;" onclick="app.showPromptModal()">🪟 PRIKAŽI PROMPT (kopiranje bez selekcije)</button>
+                        <button class="btn-full" style="background:#f39c12; flex:1; min-width:220px;" onclick="window.open('https://chat.openai.com/', '_blank')">🌐 OTVORI AI (ChatGPT)</button>
+                    </div>
                 </div>
-                <div class="setting-row">
-                    <span>🔍 Uvećana Slova</span>
-                    <label class="switch"><input type="checkbox" id="font-toggle" onchange="app.toggleFontSize(this.checked)"><span class="slider round"></span></label>
-                </div>
+
+	                <div style="margin-top:14px; padding-top:12px; border-top:1px dashed #e6e6e6;">
+	                    <label style="font-weight:bold;">AI odgovor (JSON) — zalepi ovde</label>
+	                    <textarea id="ai_result" rows="10" placeholder="Ovde nalepi JSON koji ti AI vrati (bez markdown-a)." style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; margin-top:6px;"></textarea>
+	                    <button class="btn-full" style="background:#3498db;" onclick="app.importAIResult()">📥 UVEZI U 'Moji simptomi'</button>
+                        <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+                            <button class="btn-full" style="background:#2ecc71; flex:1; min-width:220px;" onclick="app.copyAIResult()">📋 KOPIRAJ AI ODGOVOR</button>
+                            <button class="btn-full" style="background:#16a085; flex:1; min-width:220px;" onclick="app.showAIResultModal()">🪟 PRIKAŽI AI ODGOVOR</button>
+                        </div>
+	                    <button class="btn-full" style="background:#95a5a6;" onclick="nav('mysymptoms')">⬅ Nazad na Moji simptomi</button>
+	                    <p style="margin:8px 0 0 0; color:#777; font-size:0.82rem;">
+	                        Savet: Ako AI vrati više teksta ili markdown, ponovi prompt i naglasi "samo JSON".
+	                    </p>
+	                </div>
             </div>
-            <div class="settings-card">
-                <h3>💾 Podaci (Backup)</h3>
-                <p style="font-size:0.85rem; color:#666; margin-bottom:15px;">Sačuvajte svoje favorite pre ažuriranja.</p>
-                <button class="btn-secondary" onclick="app.exportData()">📤 IZVEZI PODATKE (BACKUP)</button>
-                <div style="margin-top:15px; border-top:1px solid #eee; padding-top:15px;">
-                    <input type="file" id="import-file" style="display:none" onchange="app.importData(this)">
-                    <button class="btn-secondary" onclick="document.getElementById('import-file').click()">📥 UVEZI PODATKE (RESTORE)</button>
-                </div>
+        </div>
+
+        <div id="page-help" class="section">
+            <div class="welcome-card" style="text-align:left;">
+                <h2 style="color:var(--primary);">📖 KORISNIČKO UPUTSTVO</h2>
+                
+                <div style="margin-top:15px; font-weight:bold; color:#4A90E2; border-bottom:1px solid #eee;">1. KAKO POČETI?</div>
+                <ul style="padding-left:20px; color:#555; margin-top:5px;">
+                    <li><strong>Brza Pomoć:</strong> Na početnoj strani su najvažniji programi. Samo kliknite na karticu da otvorite terapiju.</li>
+                    <li><strong>Katalog:</strong> Ako ne vidite svoj problem, kliknite na dugme "Pretraži Katalog" i upišite simptom.</li>
+                    <li><strong>Start:</strong> Kada uđete u detalje terapije, pritisnite veliko zeleno dugme ▶ POKRENI TERAPIJU.</li>
+                </ul>
+
+                <div style="margin-top:15px; font-weight:bold; color:#4A90E2; border-bottom:1px solid #eee;">2. SAVETI ZA ZDRAVLJE</div>
+                <ul style="padding-left:20px; color:#555; margin-top:5px;">
+                    <li>💧 <strong>Voda:</strong> Obavezno popijte čašu vode pre i posle terapije radi detoksikacije.</li>
+                    <li>🎧 <strong>Slušalice:</strong> Preporučujemo korišćenje slušalica za <strong>SVE programe</strong> (i Rife i Binaural).</li>
+                    <li>⏳ <strong>Trajanje:</strong> 3 do 5 minuta po frekvenciji (ukupna terapija oko 15-20 min).</li>
+                </ul>
+
+                <div style="margin-top:15px; font-weight:bold; color:#4A90E2; border-bottom:1px solid #eee;">3. NAPREDNE OPCIJE</div>
+                <ul style="padding-left:20px; color:#555; margin-top:5px;">
+                    <li><strong>Playlista:</strong> Možete sastaviti svoju listu terapija. Kliknite na dugme ➕ u katalogu.</li>
+                    <li><strong>Offline Rad:</strong> Instalirajte aplikaciju klikom na dugme "Instaliraj" i ona će raditi bez interneta zauvek.</li>
+                </ul>
             </div>
-            
-            <div class="settings-card" style="border-color: #27AE60; background-color: #eafaf1;">
-                <h3 style="color:#27AE60">🔄 Ažuriranje</h3>
-                <p style="font-size:0.85rem; color:#666;">Ako aplikacija ne prikazuje novu verziju:</p>
-                <button class="btn-secondary" style="border-color:#27AE60; color:#27AE60; font-weight:bold;" onclick="app.forceUpdateApp()">🚀 OSVEŽI / POPRAVI VERZIJU</button>
+        </div>
+
+        <div id="page-settings" class="section">
+            <h2>Podešavanja</h2>
+            <div class="welcome-card" style="text-align:left;">
+                <h4>💾 Podaci (Backup)</h4>
+                <p style="font-size:0.85rem; color:#666;">Sačuvajte svoje favorite.</p>
+                <button onclick="app.exportData()" style="width:100%; padding:10px; margin-bottom:5px; background:white; border:1px solid #ddd; border-radius:5px;">📤 Izvezi Podatke</button>
+                <div style="position:relative; overflow:hidden; width:100%; margin-top:5px;">
+                    <button style="width:100%; padding:10px; background:white; border:1px solid #ddd; border-radius:5px;">📥 Uvezi Podatke</button>
+                    <input type="file" onchange="app.importData(this)" style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0;">
+                </div>
             </div>
 
-            <div class="settings-card" style="border-color: #e74c3c;">
-                <h3 style="color:#c0392b">Opasna Zona</h3>
-                <button class="btn-secondary" style="border-color:#c0392b; color:#c0392b" onclick="app.resetAllData()">🗑️ OBRIŠI SVE</button>
+            <div class="welcome-card" style="text-align:left; border-left:5px solid #c0392b;">
+                <h4 style="color:#c0392b; margin-top:0;">🛠️ Održavanje</h4>
+                <p style="font-size:0.85rem; color:#666;">Ako nešto ne radi, osvežite sistem:</p>
+                <button onclick="resetAppCache()" style="width:100%; padding:15px; background:#c0392b; color:white; border:none; border-radius:8px; font-weight:bold;">🚀 OČISTI KEŠ I AŽURIRAJ</button>
             </div>
-            
-            <div style="margin-top:20px; font-size:0.8rem; color:#666; text-align:center">
-                <p><strong>SINET Audio v4.5</strong></p>
-                <p>Architect: miuchins & SINET AI</p>
-            </div>
-        </section>
-
+        </div>
     </main>
 
-    <script src="js/db/indexed-db.js"></script>
-    <script type="module" src="js/app.js"></script>
+    <div id="toast" class="toast" style="display:none;"></div>
+
+    <div id="player-dock" class="player-dock">
+        <div class="player-info">
+            <div class="track-title" id="p-title">Mirovanje</div>
+            <div class="timers-row">
+                <span><small>FREK</small> <span id="p-timer-now">00:00</span></span>
+                <span><small>UKUPNO</small> <span id="p-timer-elapsed">00:00</span> / <span id="p-timer-total">00:00</span></span>
+            </div>
+            <div id="p-protocol-timer" class="total-protocol-timer">UKUPNO: 00:00 / 00:00</div>
+            <div id="p-active-meta" class="player-active-meta">
+                <div class="pam-line pam-main">
+                    <span id="p-active-hz">—</span>
+                    <span id="p-active-name" class="pam-muted"></span>
+                </div>
+                <div id="p-active-desc" class="pam-line pam-muted"></div>
+                <div id="p-active-src" class="pam-line pam-muted"></div>
+                <div id="p-active-dur" class="pam-line pam-muted"></div>
+            </div>
+        </div>
+        <div class="controls">
+            <button class="btn-ctrl btn-stop" onclick="stopAudio()">⏹ STOP</button>
+            <button class="btn-ctrl btn-pause" id="btn-pp" onclick="togglePause()">⏸ PAUZA</button>
+            <button class="btn-ctrl btn-list" id="btn-nowlist" onclick="toggleNowList()">▾ FREKVENCIJE</button>
+        </div>
+        <div id="nowplaying-panel" class="nowplaying-panel" style="display:none;">
+          <div class="nowplaying-title">Preostale frekvencije</div>
+          <div id="nowplaying-list" class="nowplaying-list"></div>
+          <div class="nowplaying-hint">Odčekiraj da preskočiš (može i tokom rada).</div>
+        </div>
+
+        <div style="font-size:0.75rem; text-align:center; color:#aaa; margin-top:5px;" id="p-status" class="player-status"></div>
+    </div>
+
+    <div id="modal" class="modal-overlay" onclick="if(event.target===this) closeModal()">
+        <div class="modal-content">
+            <div style="text-align:right"><button onclick="closeModal()" style="border:none; background:none; font-size:1.5rem;">✖</button></div>
+            <h2 id="m-title" style="color:var(--primary); margin-top:0;">Naslov</h2>
+            <div class="quickstart-bar" aria-label="Quick start">
+                <button class="qs-btn qs-play" onclick="playFromModal()">▶ PUSTI</button>
+                <button class="qs-btn qs-add" onclick="addToPlaylistFromModal()">➕ U LISTU</button>
+            
+                <button class="qs-btn qs-fav" id="btn-qs-fav" onclick="toggleFavoriteFromModal()">☆ FAVORIT</button>
+            </div>
+            <div id="m-summary" class="modal-summary">
+                <div id="m-desc-box" class="summary-box" style="display:none;">
+                    <div class="summary-title">OPIS</div>
+                    <div id="m-desc" class="summary-body"></div>
+                </div>
+                <div id="m-mkb-box" class="summary-box" style="display:none;">
+                    <div class="summary-title">MKB-10</div>
+                    <div id="m-mkb" class="summary-body"></div>
+                </div>
+            </div>
+            
+            <div id="m-holistic"></div>
+
+
+<div class="modal-section">
+    <div class="modal-section-title">AKUPRESURA</div>
+    <div id="m-acupressure"></div>
+</div>
+
+            <div style="background:#eee; padding:15px; border-radius:10px; margin-top:20px;">
+                <div class="modal-section">
+                    <div class="modal-section-title">FREKVENCIJE</div>
+
+                    <!-- Elder-friendly: actions on top, list below -->
+                    <div class="freq-controls">
+                        <div class="freq-duration">Trajanje po frekvenciji: <strong id="m-dur-lbl" style="color:var(--primary)">5 min</strong></div>
+                        <input type="range" id="m-slider" min="1" max="60" value="5" style="width:100%; margin:10px 0 0 0;" oninput="window.app && window.app.updateModalDuration ? window.app.updateModalDuration() : (document.getElementById('m-dur-lbl').innerText=this.value+' min')">
+                        <div style="margin-top:10px; display:flex; gap:10px; align-items:flex-start;">
+                            <input type="checkbox" id="m-usecatdur" style="margin-top:4px;" onchange="window.app && window.app.onToggleUseCatalogDurations && window.app.onToggleUseCatalogDurations(this.checked)">
+                            <label for="m-usecatdur" style="font-size:0.95rem; font-weight:700; color:#2c3e50; line-height:1.25;">Koristi preporučeno trajanje iz kataloga (trajanje_min po frekvenciji) — ako nema, koristi slider</label>
+                        </div>
+                    </div>
+
+                    <div id="m-freqs"></div>
+                </div>
+            </div>
+            <div class="modal-section" style="margin-top:14px;">
+                <div class="modal-section-title">NAPREDNO (EDIT / JSON)</div>
+                <div id="m-advanced"></div>
+            </div>
+
+        </div>
+    </div>
+
+
+<!-- ACUPRESSURE VIEWER -->
+<div id="acupressure-modal" class="modal-overlay" style="align-items:center;" onclick="if(event.target===this) closeAcupressureViewer()">
+    <div class="modal-content" style="max-height:92vh;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+            <h3 id="acup-title" style="margin:0; color:var(--primary);">Akupresura</h3>
+            <button onclick="closeAcupressureViewer()" style="border:none; background:none; font-size:1.5rem;">✖</button>
+        </div>
+
+        <div class="acup-view">
+            <div class="acup-imgwrap">
+                <img id="acup-img" alt="Akupresura slika" />
+                <div id="acup-marker" class="acup-marker" style="display:none;"></div>
+                <div id="acup-noimg" class="acup-noimg" style="display:none;">Nema slike za ovu tačku (još). 🙂</div>
+            </div>
+
+            <div class="acup-text">
+                <div id="acup-loc" class="acup-meta"></div>
+                <div id="acup-how" class="acup-howtext"></div>
+                <div id="acup-src" class="acup-src"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+    <script src="js/db/indexed-db.js?v=15.4"></script>
+    <script type="module" src="js/app.js?v=15.4.8.2"></script>
 
     <script>
+        // PWA & WORKER
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('service-worker.js').then(reg => console.log('SW OK')).catch(err => console.log('SW Fail', err));
-            });
+            window.addEventListener('load', () => { navigator.serviceWorker.register('service-worker.js'); });
         }
-        
         let deferredPrompt;
         const installBox = document.getElementById('pwa-install-promo');
         const installBtn = document.getElementById('pwa-install-btn');
-        const closeBtn = document.getElementById('close-install-btn');
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault(); deferredPrompt = e; installBox.style.display = 'block';
+        });
+        installBtn.addEventListener('click', (e) => {
+            installBox.style.display = 'none'; deferredPrompt.prompt();
+        });
 
-        // LOGIKA: Ako je korisnik već zatvorio baner, ne prikazuj ga opet
-        const isDismissed = localStorage.getItem('pwa_install_dismissed') === 'true';
-
-        if (!window.matchMedia('(display-mode: standalone)').matches && !isDismissed) {
-            window.addEventListener('beforeinstallprompt', (e) => {
-                e.preventDefault();
-                deferredPrompt = e;
-                installBox.style.display = 'block';
-            });
+        // RESET CACHE FUNCTION
+        async function resetAppCache() {
+            if(!confirm("Ovo će obrisati keš i učitati novu verziju. Nastaviti?")) return;
+            if ('caches' in window) {
+                const keys = await caches.keys();
+                for(let key of keys) await caches.delete(key);
+            }
+            if ('serviceWorker' in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                for(let reg of regs) await reg.unregister();
+            }
+            window.location.reload(true);
         }
 
-        if(installBtn) installBtn.addEventListener('click', (e) => {
-            installBox.style.display = 'none';
-            deferredPrompt.prompt();
-        });
-
-        if(closeBtn) closeBtn.addEventListener('click', (e) => {
-            installBox.style.display = 'none';
-            // ZAPAMTI ZAUVEK DA JE ZATVORENO
-            localStorage.setItem('pwa_install_dismissed', 'true');
-        });
+        // GLOBAL UI HELPERS
+        window.toggleMenu = () => {
+            const el = document.getElementById('nav-overlay');
+            el.style.display = (el.style.display === 'block') ? 'none' : 'block';
+        };
+        window.nav = (id) => (window.app && typeof window.app.nav==="function") ? window.app.nav(id) : console.warn("APP not ready yet");
+        window.exportCatalogTxt = (mode) => (window.app && typeof window.app.exportCatalogTxt==="function") ? window.app.exportCatalogTxt(mode) : console.warn("APP not ready yet");
+        window.exportCatalogSTL = (mode) => (window.app && typeof window.app.exportCatalogSTL==="function") ? window.app.exportCatalogSTL(mode) : console.warn("APP not ready yet");
     </script>
 
-    <div id="help-modal" class="modal-overlay" style="display:none;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>📖 Korisničko Uputstvo</h3>
-                <button class="close-modal" onclick="app.toggleHelp()">✖</button>
-            </div>
-            <div class="modal-body">
-                
-                <p>Dobrodošli u SINET Audio Lekar. Ovo uputstvo će vam pomoći da maksimalno iskoristite aplikaciju za vaše zdravlje.</p>
 
-                <div class="help-section-title">1. INSTALACIJA (Važno!)</div>
-                <p>SINET Audio je <strong>PWA (Web Aplikacija)</strong>. To znači da se ne skida sa Play Store-a, već direktno sa sajta.</p>
-                <ul class="help-list">
-                    <li><strong>Android (Chrome):</strong> Kliknite na tri tačkice gore desno -> "Install App" ili "Dodaj na početni ekran".</li>
-                    <li><strong>iPhone (Safari):</strong> Kliknite na dugme "Share" (kockica sa strelicom) -> "Add to Home Screen".</li>
-                    <li><strong>Računar:</strong> Kliknite na ikonicu (+) u adresnoj traci.</li>
-                </ul>
-
-                <div class="help-section-title">2. POČETNA STRANA (Brza Pomoć)</div>
-                <ul class="help-list">
-                    <li>Ovde se nalaze <strong>Sistemski Preseti</strong>. To su terapije koje smo mi pripremili.</li>
-                    <li>Grupe su podeljene logično: <strong>Prva Pomoć, Autoimune, Kosti...</strong></li>
-                    <li>Kliknite na karticu (npr. "Zubobolja") da otvorite terapiju.</li>
-                </ul>
-
-                <div class="help-section-title">3. KATALOG I PRETRAGA</div>
-                <ul class="help-list">
-                    <li>Kliknite na dugme <strong>"Katalog"</strong> u meniju.</li>
-                    <li>Upišite u polje za pretragu šta vas muči (npr. "Sinusi", "Stres").</li>
-                    <li>Aplikacija će filtrirati listu.</li>
-                </ul>
-
-                <div class="help-section-title">4. KAKO PUSTITI TERAPIJU?</div>
-                <ul class="help-list">
-                    <li>Možete isključiti neke frekvencije na kućicu ako želite.</li>
-                    <li>Podesite <strong>Trajanje</strong> (klizačem). Preporuka je <strong>3 do 5 minuta</strong> po frekvenciji.</li>
-                    <li>Kliknite na veliko zeleno dugme <strong>▶ POKRENI TERAPIJU</strong>.</li>
-                    <li><strong>Savet:</strong> Ekran će ostati upaljen dok traje terapija.</li>
-                </ul>
-
-                <div class="help-section-title">5. PLAYLISTA (Moja Lista)</div>
-                <ul class="help-list">
-                    <li>Otvorite terapiju i kliknite na dugme <strong>➕</strong> (dodaj).</li>
-                    <li>Idite u Meni -> <strong>🎵 Moja Playlista</strong>.</li>
-                    <li>Kliknite <strong>▶ PUSTI SVE REDOM</strong>.</li>
-                </ul>
-
-                <div class="help-section-title">6. BACKUP (Čuvanje)</div>
-                <ul class="help-list">
-                    <li>Idite u <strong>Podešavanja</strong>.</li>
-                    <li>Kliknite <strong>📤 IZVEZI PODATKE</strong> da sačuvate fajl.</li>
-                    <li>Kasnije možete uraditi <strong>📥 UVEZI PODATKE</strong>.</li>
-                </ul>
-
-                <div class="help-section-title">7. SAVETI ZA ZDRAVLJE</div>
-                <ul class="help-list">
-                    <li>💧 <strong>Voda:</strong> Pijte čašu vode pre i posle terapije. Zvuk ubrzava izbacivanje toksina.</li>
-                    <li>🎧 <strong>Slušalice:</strong> Za mozak (Brainwave) su obavezne. Za telo (Rife) možete koristiti zvučnik telefona naslonjen na telo.</li>
-                </ul>
-
-                <hr>
-                <p style="font-size:0.8rem; text-align:center; color:#666;">
-                    SINET Audio nije zamena za lekara.<br>
-                    <em>Made with ❤️ by miuchins</em>
-                </p>
-            </div>
-            <button class="ctrl-btn play" style="width:100%; margin-top:10px;" onclick="app.toggleHelp()">RAZUMEM, ZATVORI</button>
+<!-- TEXT MODAL (Prompt/Result) -->
+<div id="text-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this) window.app && window.app.closeTextModal && window.app.closeTextModal()">
+    <div class="modal-content" style="max-width:920px;">
+        <div style="text-align:right"><button onclick="window.app && window.app.closeTextModal && window.app.closeTextModal()" style="border:none; background:none; font-size:1.5rem;">✖</button></div>
+        <h2 id="tm-title" style="color:var(--primary); margin-top:0;">Tekst</h2>
+        <textarea id="tm-text" rows="14" readonly style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px;"></textarea>
+        <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+            <button class="btn-full" style="background:#2ecc71; flex:1; min-width:220px;" onclick="window.app && window.app.copyTextModal && window.app.copyTextModal()">📋 KOPIRAJ</button>
+            <button class="btn-full" style="background:#95a5a6; flex:1; min-width:220px;" onclick="window.app && window.app.closeTextModal && window.app.closeTextModal()">ZATVORI</button>
         </div>
+        <div id="tm-links" style="margin-top:12px;"></div>
     </div>
+</div>
 
 </body>
 </html>

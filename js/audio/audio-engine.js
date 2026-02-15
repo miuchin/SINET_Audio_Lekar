@@ -1,239 +1,351 @@
 /*
-    ====== SINET PROJECT INFO ======
-    Project: SINET Audio Lekar
-    File: js/audio/audio-engine.js
-    Version: 1.0
-    Author: miuchins | Co-author: SINET AI
-    Description: Advanced Audio Engine for sequencing frequencies using Web Audio API.
-    Features: Smooth Fading, Sequencing, Timer Callbacks, Resume capability.
+  SINET Audio Engine
+  File: js/audio/audio-engine.js
+  Version: 4.7
+  Notes:
+    - Reliable oscillator play
+    - Proper stats for timer UI
+    - Pause/Resume preserves elapsed time
 */
 
-/* 🚩 START: Audio Engine Class */
 export class SinetAudioEngine {
-    constructor() {
-        this.ctx = null;            // AudioContext
-        this.oscillator = null;     // Trenutni oscilator
-        this.gainNode = null;       // Kontrola jačine (Volume/Fade)
-        
-        // Stanje Player-a
-        this.isPlaying = false;
-        this.isPaused = false;
-        
-        // Podaci o sekvenci (Playlist)
-        this.playlist = [];         // Niz frekvencija koji sviramo
-        this.currentIndex = 0;      // Koju frekvenciju trenutno sviramo
-        this.durationPerFreq = 300; // Koliko traje jedna frekvencija (u sekundama, default 5 min)
-        this.timer = null;          // JS Interval za brojanje vremena
-        this.elapsedInCurrent = 0;  // Koliko je prošlo vremena u TRENUTNOJ frekvenciji
+  constructor(opts = {}) {
+    this.audioContext = null;
+    this.masterGain = null;
+    this.oscillators = [];
+    this.isPlaying = false;
 
-        // Callbacks (Funkcije koje UI šalje Engine-u da bi znao šta se dešava)
-        this.onTick = null;         // Poziva se svake sekunde (za Progress Bar)
-        this.onFreqChange = null;   // Poziva se kad se promeni frekvencija
-        this.onComplete = null;     // Poziva se kad je cela terapija gotova
+    // v15.4.7 — audible carrier for sub-50Hz
+    this.subCarrierHz = Number(opts.subCarrierHz) || 200;
+    this.subCarrierThresholdHz = Number(opts.subCarrierThresholdHz) || 50;
+
+    this.currentSequence = [];
+    this.currentIndex = 0;
+    this.totalDurationSec = 0;
+    this.durationPerFreq = 0;
+
+    // Optional per-frequency durations (seconds), aligned to sequence indices
+    this._durationsSec = null;
+
+    this._tickTimer = null;
+    this._stepStartedAt = 0;
+    this._resumeOffsetSec = 0;
+
+    this.onTick = opts.onTick || null;
+    this.onFreqChange = opts.onFreqChange || null;
+    this.onComplete = opts.onComplete || null;
+    this.onSkip = opts.onSkip || null;
+
+    // Skip/disable support
+    this._disabled = new Set();
+  }
+
+  init() {
+    if (!this.audioContext) {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      this.audioContext = new AudioContext();
+      this.masterGain = this.audioContext.createGain();
+      // Split output: direct -> destination, and media -> MediaStreamDestination (iOS background best-effort)
+      this.outGainDirect = this.audioContext.createGain();
+      this.outGainMedia = this.audioContext.createGain();
+      this.mediaDest = this.audioContext.createMediaStreamDestination();
+      this.outGainDirect.gain.value = 1;
+      this.outGainMedia.gain.value = 0;
+      this.masterGain.connect(this.outGainDirect);
+      this.outGainDirect.connect(this.audioContext.destination);
+      this.masterGain.connect(this.outGainMedia);
+      this.outGainMedia.connect(this.mediaDest);
+      this.masterGain.gain.value = 0.25; // louder default
+    }
+    if (this.audioContext.state === "suspended") {
+      this.audioContext.resume().catch(() => {});
+    }
+  }
+
+  playFrequency(freq) {
+    this.stopOscillator();
+    this.init();
+
+    const ctx = this.audioContext;
+    const hz = Math.max(0, Number(freq) || 0);
+
+    // If frequency is sub-audible, render as AM on a fixed carrier (default 200 Hz)
+    if (hz > 0 && hz < this.subCarrierThresholdHz) {
+      const carrierHz = Math.max(40, Number(this.subCarrierHz) || 200);
+
+      const carrier = ctx.createOscillator();
+      carrier.type = "sine";
+      carrier.frequency.setValueAtTime(carrierHz, ctx.currentTime);
+
+      // Amplitude node: 0.5 offset so gain stays >= 0
+      const amp = ctx.createGain();
+      amp.gain.setValueAtTime(0.5, ctx.currentTime);
+
+      const mod = ctx.createOscillator();
+      mod.type = "sine";
+      mod.frequency.setValueAtTime(hz, ctx.currentTime);
+
+      // Depth 0.5 so gain swings 0..1
+      const depth = ctx.createGain();
+      depth.gain.setValueAtTime(0.5, ctx.currentTime);
+
+      mod.connect(depth);
+      depth.connect(amp.gain);
+
+      carrier.connect(amp);
+      amp.connect(this.masterGain);
+
+      mod.start();
+      carrier.start();
+
+      this.oscillators.push(carrier, mod);
+      this.isPlaying = true;
+      return;
     }
 
-    /* --- 1. INICIJALIZACIJA --- */
-    init() {
-        if (!this.ctx) {
-            // Kreiramo AudioContext samo na prvu interakciju korisnika (Browser policy)
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            this.ctx = new AudioContext();
-        }
-        if (this.ctx.state === 'suspended') {
-            this.ctx.resume();
-        }
+    // Normal audible oscillator
+    if (hz <= 0) return;
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(hz, ctx.currentTime);
+    osc.connect(this.masterGain);
+    osc.start();
+
+    this.oscillators.push(osc);
+    this.isPlaying = true;
+  }
+
+  stopOscillator() {
+    for (const osc of this.oscillators) {
+      try { osc.stop(); osc.disconnect(); } catch(e) {}
+    }
+    this.oscillators = [];
+    this.isPlaying = false;
+  }
+
+  loadSequence(list, totalDurationSec, startIndex = 0, elapsedInCurrentFreq = 0, durationsSec = null) {
+    this.currentSequence = Array.isArray(list) ? list : [];
+    this.totalDurationSec = Math.max(0, Number(totalDurationSec) || 0);
+    this.currentIndex = Math.max(0, Number(startIndex) || 0);
+
+    this._disabled = new Set();
+
+    // Optional: per-frequency durations (seconds), aligned to original indices
+    this._durationsSec = null;
+    if (Array.isArray(durationsSec) && durationsSec.length === this.currentSequence.length) {
+      this._durationsSec = durationsSec.map(v => Math.max(0, Number(v) || 0));
+      const sum = this._durationsSec.reduce((acc, v) => acc + (Number(v) || 0), 0);
+      if (!this.totalDurationSec || this.totalDurationSec < sum) this.totalDurationSec = sum;
     }
 
-    /* --- 2. UPRAVLJANJE LISTOM (Load Sequence) --- */
-    /**
-     * Učitava listu frekvencija iz kataloga
-     * @param {Array} frequencies - Niz objekata [{value: 120, svrha: '...'}, ...]
-     * @param {Number} durationSec - Trajanje jedne frekvencije u sekundama
-     * @param {Number} startIndex - (Opcija) Od koje frekvencije krećemo (za Resume)
-     * @param {Number} startElapsed - (Opcija) Koliko je sekundi već prošlo u toj frekvenciji
-     */
-    loadSequence(frequencies, durationSec = 300, startIndex = 0, startElapsed = 0) {
-        this.playlist = frequencies;
-        this.durationPerFreq = durationSec;
-        this.currentIndex = startIndex;
-        this.elapsedInCurrent = startElapsed;
-        console.log(`AudioEngine: Loaded ${frequencies.length} freqs. Starting at #${startIndex}, time: ${startElapsed}s`);
+    const n = Math.max(1, this.currentSequence.length);
+    this.durationPerFreq = this.totalDurationSec / n;
+    this._resumeOffsetSec = Math.max(0, Number(elapsedInCurrentFreq) || 0);
+  }
+
+
+  _durFor(index) {
+    const i = Number(index);
+    if (this._durationsSec && Number.isFinite(i) && i >= 0 && i < this._durationsSec.length) {
+      const v = Number(this._durationsSec[i]);
+      if (Number.isFinite(v) && v > 0) return v;
+    }
+    return Math.max(0, Number(this.durationPerFreq) || 0);
+  }
+
+  _isEnabledIndex(i) {
+    return !this._disabled.has(Number(i));
+  }
+
+  _enabledCount() {
+    const n = this.currentSequence.length || 0;
+    let c = 0;
+    for (let i = 0; i < n; i++) if (this._isEnabledIndex(i)) c++;
+    return c;
+  }
+
+
+  isEnabled(index) {
+    return this._isEnabledIndex(index);
+  }
+
+  setEnabled(index, enabled) {
+    const i = Number(index);
+    if (!Number.isFinite(i)) return;
+    if (enabled) this._disabled.delete(i);
+    else this._disabled.add(i);
+  }
+
+  skipCurrent() {
+    // disable current and move to next immediately
+    const i = this.currentIndex;
+    this.setEnabled(i, false);
+
+    // stop current sound & timer
+    this.stopOscillator();
+    if (this._tickTimer) clearInterval(this._tickTimer);
+    this._tickTimer = null;
+
+    this._resumeOffsetSec = 0;
+    this.currentIndex += 1;
+    this._runStep();
+  }
+  play() {
+    this.init();
+    this._runStep();
+  }
+
+  _runStep() {
+    // auto-skip disabled items
+    while (this.currentIndex < this.currentSequence.length && this._disabled.has(this.currentIndex)) {
+      const skippedObj = this.currentSequence[this.currentIndex] || {};
+      this.onSkip && this.onSkip(skippedObj, this._buildStats(0));
+      this.currentIndex += 1;
     }
 
-    /* --- 3. PLAY / PAUSE / STOP --- */
-    
-    play() {
-        this.init(); // Osiguraj da imamo Context
-
-        if (this.isPaused) {
-            // Ako je bila pauza, nastavi
-            this.isPaused = false;
-            this.isPlaying = true;
-            this.playFrequency(this.playlist[this.currentIndex].value); // Ponovo pokreni zvuk
-            this.startTimer();
-            return;
-        }
-
-        if (this.playlist.length === 0) {
-            console.error("AudioEngine: Empty playlist!");
-            return;
-        }
-
-        this.isPlaying = true;
-        this.isPaused = false;
-        
-        // Pokreni trenutnu frekvenciju
-        const currentFreq = this.playlist[this.currentIndex];
-        this.playFrequency(currentFreq.value);
-        this.startTimer();
-        
-        // Javi UI-ju šta svira
-        if (this.onFreqChange) this.onFreqChange(currentFreq, this.currentIndex);
+    if (this.currentIndex >= this.currentSequence.length) {
+      this.stop();
+      this.onComplete && this.onComplete();
+      return;
     }
 
-    pause() {
-        if (!this.isPlaying) return;
-        
-        this.isPlaying = false;
-        this.isPaused = true;
-        this.stopOscillator(); // Ugasi zvuk, ali ne resetuj brojace
-        this.stopTimer();
-        console.log("AudioEngine: Paused.");
+    const obj = this.currentSequence[this.currentIndex] || {};
+    const hz = Number(obj.value) || 0;
+
+    this.playFrequency(hz);
+    this._stepStartedAt = this.audioContext.currentTime;
+
+    const stepDur = this._durFor(this.currentIndex);
+    const timeLeft = Math.max(0, stepDur - this._resumeOffsetSec);
+
+    // immediate callback
+    this.onFreqChange && this.onFreqChange(obj, this._buildStats(this._resumeOffsetSec));
+
+    if (this._tickTimer) clearInterval(this._tickTimer);
+    this._tickTimer = setInterval(() => {
+      if (!this.isPlaying) return;
+
+      const elapsedSinceStart = this.audioContext.currentTime - this._stepStartedAt;
+      const elapsedInFreq = this._resumeOffsetSec + elapsedSinceStart;
+
+      this.onTick && this.onTick(this._buildStats(elapsedInFreq));
+
+      if (elapsedSinceStart >= timeLeft) {
+        clearInterval(this._tickTimer);
+        this._tickTimer = null;
+        this._resumeOffsetSec = 0;
+        this.currentIndex += 1;
+        this._runStep();
+      }
+    }, 200);
+  }
+
+  _buildStats(elapsedInFreq) {
+    const totalItems = this.currentSequence.length || 0;
+    const elapsedIn = Math.max(0, Number(elapsedInFreq) || 0);
+
+    // Track totals should ignore disabled items
+    let enabledTotalItems = 0;
+    let currentPos = 0; // position among enabled items (0-based)
+    let totalTrackSec = 0;
+    let elapsedTrackSec = 0;
+
+    for (let i = 0; i < totalItems; i++) {
+      if (!this._isEnabledIndex(i)) continue;
+      const d = this._durFor(i);
+      enabledTotalItems += 1;
+      totalTrackSec += d;
+
+      if (i < this.currentIndex) {
+        currentPos += 1;
+        elapsedTrackSec += d;
+      } else if (i === this.currentIndex) {
+        elapsedTrackSec += Math.max(0, Math.min(d, elapsedIn));
+      }
     }
 
-    stop() {
-        this.isPlaying = false;
-        this.isPaused = false;
-        this.stopOscillator();
-        this.stopTimer();
-        
-        // Resetuj brojace na nulu
-        this.currentIndex = 0;
-        this.elapsedInCurrent = 0;
-        console.log("AudioEngine: Stopped and Reset.");
+    const durationCurrentSec = this._durFor(this.currentIndex);
+
+    return {
+      currentIndex: this.currentIndex,
+      totalItems,
+      enabledTotalItems,
+      currentPos,
+      elapsedInFreq: elapsedIn,
+      durationPerFreq: Math.max(0, Number(this.durationPerFreq) || 0),
+      durationCurrentSec,
+      totalDurationSec: Math.max(0, Number(this.totalDurationSec) || 0),
+      totalTrackSec: Math.max(0, Number(totalTrackSec) || 0),
+      elapsedTrackSec: Math.max(0, Number(elapsedTrackSec) || 0),
+      hasPerFreqDurations: !!this._durationsSec
+    };
+  }
+
+  pause() {
+    let elapsed = 0;
+    if (this.isPlaying && this.audioContext) {
+      elapsed = this._resumeOffsetSec + (this.audioContext.currentTime - this._stepStartedAt);
     }
+    this._resumeOffsetSec = Math.max(0, elapsed);
 
-    /* --- 4. GENERISANJE ZVUKA (CORE) --- */
-    
-    playFrequency(hz) {
-        // Prvo ugasi stari zvuk (sa Fade Out)
-        this.stopOscillator();
+    this.stopOscillator();
+    if (this._tickTimer) clearInterval(this._tickTimer);
+    this._tickTimer = null;
+    return this.getState();
+  }
 
-        // Kreiraj novi oscilator
-        this.oscillator = this.ctx.createOscillator();
-        this.gainNode = this.ctx.createGain();
+  stop() {
+    this.pause();
+    this.currentIndex = 0;
+    this._resumeOffsetSec = 0;
+  }
 
-        // Podešavanja
-        this.oscillator.type = 'sine'; // Sinusni talas je najprijatniji za seniore
-        this.oscillator.frequency.value = hz;
 
-        // Povezivanje: Osc -> Gain -> Speakers
-        this.oscillator.connect(this.gainNode);
-        this.gainNode.connect(this.ctx.destination);
-
-        // FADE IN (Meki ulazak da ne "pucne")
-        // Postavi gain na 0, pa ga podigni na 0.5 u roku od 1 sekunde
-        this.gainNode.gain.setValueAtTime(0, this.ctx.currentTime);
-        this.gainNode.gain.linearRampToValueAtTime(0.5, this.ctx.currentTime + 1);
-
-        this.oscillator.start();
-        console.log(`AudioEngine: Playing ${hz} Hz`);
-    }
-
-    stopOscillator() {
-        if (this.oscillator) {
-            // FADE OUT (Meki izlazak)
-            // Trenutnu vrednost spusti na 0.001 (skoro nula) za 0.5 sekundi
-            // WebAudio ne voli ramp to 0, zato koristimo 0.001
-            try {
-                this.gainNode.gain.cancelScheduledValues(this.ctx.currentTime);
-                this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, this.ctx.currentTime);
-                this.gainNode.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
-                
-                // Zaustavi oscilator nakon fade-outa
-                const oldOsc = this.oscillator;
-                setTimeout(() => {
-                    oldOsc.stop();
-                    oldOsc.disconnect();
-                }, 550);
-            } catch (e) {
-                // Fallback ako nesto pukne
-                this.oscillator.stop();
-            }
-            this.oscillator = null;
-        }
-    }
-
-    /* --- 5. TAJMER I SEKVENCA --- */
-
-    startTimer() {
-        this.stopTimer(); // Za svaki slucaj očisti stari
-
-        this.timer = setInterval(() => {
-            if (!this.isPlaying || this.isPaused) return;
-
-            this.elapsedInCurrent++;
-
-            // Javi UI-ju progres (svake sekunde)
-            if (this.onTick) {
-                this.onTick({
-                    elapsedTotal: this.calculateTotalElapsed(),
-                    elapsedInFreq: this.elapsedInCurrent,
-                    durationPerFreq: this.durationPerFreq,
-                    currentIndex: this.currentIndex,
-                    totalItems: this.playlist.length
-                });
-            }
-
-            // Provera da li je vreme za sledeću frekvenciju
-            if (this.elapsedInCurrent >= this.durationPerFreq) {
-                this.nextTrack();
-            }
-
-        }, 1000); // 1 sekunda
-    }
-
-    stopTimer() {
-        if (this.timer) {
-            clearInterval(this.timer);
-            this.timer = null;
-        }
-    }
-
-    nextTrack() {
-        this.currentIndex++;
-        this.elapsedInCurrent = 0;
-
-        // Da li smo došli do kraja liste?
-        if (this.currentIndex >= this.playlist.length) {
-            this.completeTherapy();
-        } else {
-            // Pusti sledeću
-            const nextFreq = this.playlist[this.currentIndex];
-            this.playFrequency(nextFreq.value);
-            if (this.onFreqChange) this.onFreqChange(nextFreq, this.currentIndex);
-        }
-    }
-
-    completeTherapy() {
-        this.stop();
-        if (this.onComplete) this.onComplete();
-        console.log("AudioEngine: Therapy Complete.");
-    }
-
-    /* --- HELPER ZA RESUME --- */
-    calculateTotalElapsed() {
-        // Vraća ukupno vreme proteklo od početka terapije
-        return (this.currentIndex * this.durationPerFreq) + this.elapsedInCurrent;
-    }
-    
-    // Metoda za dobijanje trenutnog stanja (za čuvanje u DB)
-    getState() {
-        return {
-            currentIndex: this.currentIndex,
-            elapsedInCurrent: this.elapsedInCurrent,
-            isPlaying: this.isPlaying
-        };
-    }
+// Alias used by UI (now playing list, skip logic)
+getStats() {
+  // best-effort: build a stats object similar to _buildStats
+  const elapsed = this._resumeOffsetSec || 0;
+  return this._buildStats(elapsed);
 }
-/* 🚩 END: Audio Engine Class */
+
+  getState() {
+    return this._buildStats(this._resumeOffsetSec);
+  }
+  // Enable HTMLMediaElement output via MediaStream (best-effort; helps iOS lock-screen/background in some cases)
+  enableMediaOutput(audioEl) {
+    this.init();
+    if (!this.mediaDest || !this.outGainMedia || !this.outGainDirect) return false;
+    if (!audioEl) return false;
+    try {
+      audioEl.srcObject = this.mediaDest.stream;
+      audioEl.preload = "auto";
+      audioEl.playsInline = true;
+      audioEl.setAttribute("playsinline", "");
+      audioEl.muted = false;
+      // Switch output: prefer media element, mute direct path to avoid double audio
+      this.outGainMedia.gain.value = 1;
+      this.outGainDirect.gain.value = 0;
+
+      const p = audioEl.play();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+      return true;
+    } catch (e) {
+      // Fallback: keep direct output
+      try { this.outGainDirect.gain.value = 1; this.outGainMedia.gain.value = 0; } catch(_) {}
+      return false;
+    }
+  }
+
+  disableMediaOutput() {
+    try {
+      if (this.outGainDirect) this.outGainDirect.gain.value = 1;
+      if (this.outGainMedia) this.outGainMedia.gain.value = 0;
+    } catch(_) {}
+  }
+
+  getMediaStream() {
+    this.init();
+    return this.mediaDest ? this.mediaDest.stream : null;
+  }
+
+}
