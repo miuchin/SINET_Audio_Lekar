@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="sr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>SINET DeDuplikator (STL)</title>
+  <link rel="stylesheet" href="css/main.css"/>
+  <style>
+    .wrap{max-width:1200px;margin:0 auto;padding:16px;}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;}
+    .card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;}
+    .card h2{margin:0 0 8px 0;}
+    .muted{opacity:.85;font-size:13px;line-height:1.35}
+    .grid{display:grid;grid-template-columns:1fr;gap:10px;}
+    .group{border:1px solid rgba(255,255,255,.12);border-radius:12px;overflow:hidden;}
+    .ghead{padding:10px 12px;background:rgba(0,0,0,.25);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+    .gbody{padding:10px 12px;}
+    table{width:100%;border-collapse:collapse;}
+    td,th{padding:8px;border-bottom:1px solid rgba(255,255,255,.08);vertical-align:top}
+    th{text-align:left;opacity:.85;font-size:12px}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:rgba(43,116,255,.25);border:1px solid rgba(43,116,255,.45);font-size:12px}
+    .btn{padding:10px 12px;border-radius:10px;border:0;cursor:pointer}
+    .btn.primary{background:#2b74ff;color:#fff}
+    .btn.good{background:#25a05a;color:#fff}
+    .btn.warn{background:#c2571a;color:#fff}
+    .btn.ghost{background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.12)}
+    .log{white-space:pre-wrap;background:rgba(0,0,0,.3);padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);min-height:64px}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+    .small{font-size:12px}
+    select{padding:8px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.2);color:#fff}
+    input[type="checkbox"]{transform:scale(1.15)}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1 style="margin:4px 0 10px 0;">🧹 SINET DeDuplikator (STL v1.1)</h1>
+  <p class="muted">
+    Učitaj <code>SINET_STL.json</code> i alat će pronaći potencijalne duplikate (po nazivu + sličnosti + MKB-10).
+    Možeš: <b>zadržati A</b>, <b>zadržati B</b>, ili <b>merge</b> (popuni prazna polja + unija frekvencija).
+  </p>
+
+  <div class="card">
+    <div class="row">
+      <input id="file" type="file" accept=".json"/>
+      <button class="btn primary" id="btnUseData">Učitaj data/SINET_STL.json</button>
+      <button class="btn ghost" id="btnFind" disabled>Nađi duplikate</button>
+      <button class="btn good" id="btnApply" disabled>Primeni odluke + preuzmi čist STL</button>
+      <button class="btn warn" id="btnReport" disabled>Preuzmi report</button>
+      <a class="btn ghost" href="admin.html" style="text-decoration:none;display:inline-flex;align-items:center;">↩ Admin</a>
+    </div>
+    <div style="margin-top:10px" class="log" id="log">Spremno.</div>
+  </div>
+
+  <div style="height:12px"></div>
+  <div id="out" class="grid"></div>
+</div>
+
+<script type="module">
+  import { isSTLCatalog } from './js/catalog/stl-adapter.js';
+
+  const $ = (id)=>document.getElementById(id);
+  const log = (m)=>{ $('log').textContent=m; console.log(m); };
+
+  // --- utils ---
+  function downloadJson(filename, obj){
+    const blob = new Blob([JSON.stringify(obj,null,2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 500);
+  }
+
+  function stripDiacritics(s){
+    return String(s||'').normalize('NFD').replace(/\p{Diacritic}/gu,'');
+  }
+
+  function normName(s){
+    return stripDiacritics(String(s||'').toLowerCase())
+      .replace(/[^a-z0-9\s]/g,' ')
+      .replace(/\s+/g,' ')
+      .trim();
+  }
+
+  // Jaro-Winkler similarity (compact)
+  function jaro(s1, s2){
+    s1 = normName(s1); s2 = normName(s2);
+    if(!s1 || !s2) return 0;
+    if(s1 === s2) return 1;
+    const len1=s1.length, len2=s2.length;
+    const maxDist = Math.floor(Math.max(len1,len2)/2)-1;
+    const m1 = new Array(len1).fill(false);
+    const m2 = new Array(len2).fill(false);
+    let matches=0;
+    for(let i=0;i<len1;i++){
+      const start=Math.max(0,i-maxDist);
+      const end=Math.min(i+maxDist+1,len2);
+      for(let j=start;j<end;j++){
+        if(m2[j]) continue;
+        if(s1[i]!==s2[j]) continue;
+        m1[i]=true; m2[j]=true; matches++; break;
+      }
+    }
+    if(matches===0) return 0;
+    let t=0, k=0;
+    for(let i=0;i<len1;i++){
+      if(!m1[i]) continue;
+      while(!m2[k]) k++;
+      if(s1[i]!==s2[k]) t++;
+      k++;
+    }
+    t = t/2;
+    return (matches/len1 + matches/len2 + (matches-t)/matches)/3;
+  }
+
+  function jaroWinkler(s1,s2){
+    const j = jaro(s1,s2);
+    const p = 0.1;
+    let l=0;
+    const a = normName(s1), b = normName(s2);
+    for(; l<4 && l<a.length && l<b.length && a[l]===b[l]; l++);
+    return j + l*p*(1-j);
+  }
+
+  function empty(v){
+    return v===null || v===undefined || (typeof v==='string' && v.trim()==='') || (Array.isArray(v) && v.length===0);
+  }
+
+  function mergeSTL(keep, drop){
+    // fill only empty fields on keep, union frequencies by hz
+    const out = JSON.parse(JSON.stringify(keep));
+
+    const copyIfEmpty = (path, value)=>{
+      // path like ['mkb10','code']
+      let ref = out;
+      for(let i=0;i<path.length-1;i++){
+        if(ref[path[i]]===undefined || ref[path[i]]===null) ref[path[i]] = {};
+        ref = ref[path[i]];
+      }
+      const key = path[path.length-1];
+      if(empty(ref[key]) && !empty(value)) ref[key] = value;
+    };
+
+    // Top fields
+    copyIfEmpty(['naziv'], drop.naziv);
+    copyIfEmpty(['opis'], drop.opis);
+    copyIfEmpty(['uid'], drop.uid);
+
+    // mkb10
+    if(drop.mkb10){
+      copyIfEmpty(['mkb10'], out.mkb10); // noop
+      if(typeof out.mkb10 !== 'object' || out.mkb10===null) out.mkb10 = {code:'',opis:'',izvor:null};
+      const d = drop.mkb10;
+      if(typeof d === 'string'){ copyIfEmpty(['mkb10','code'], d); }
+      else {
+        copyIfEmpty(['mkb10','code'], d.code || d.sifra);
+        copyIfEmpty(['mkb10','opis'], d.opis);
+        copyIfEmpty(['mkb10','izvor'], d.izvor);
+      }
+    }
+
+    // psychosomatika / affirm / prayer / etc
+    const blocks = ['psihosomatika','afirmacija','molitva','narodni_lek'];
+    for(const b of blocks){
+      if(drop[b]){
+        if(!out[b] || typeof out[b] !== 'object') out[b] = {};
+        for(const [k,v] of Object.entries(drop[b])){
+          copyIfEmpty([b,k], v);
+        }
+      }
+    }
+
+    // akupresura - if out is null and drop exists, adopt array/object
+    if((out.akupresura===null || out.akupresura===undefined) && drop.akupresura) out.akupresura = drop.akupresura;
+
+    // frekvencije union by hz
+    const map = new Map();
+    const addFreq = (f)=>{
+      const hz = Number(f?.hz ?? f?.value);
+      if(!Number.isFinite(hz) || hz<=0) return;
+      const key = hz.toFixed(4);
+      if(!map.has(key)){
+        map.set(key, JSON.parse(JSON.stringify(f)));
+        return;
+      }
+      const cur = map.get(key);
+      // fill fields
+      for(const k of ['naziv','opis','funkcija']){
+        if(empty(cur[k]) && !empty(f[k])) cur[k]=f[k];
+      }
+      if(empty(cur.izvor) && !empty(f.izvor)) cur.izvor = f.izvor;
+      map.set(key, cur);
+    };
+    (Array.isArray(out.frekvencije)?out.frekvencije:[]).forEach(addFreq);
+    (Array.isArray(drop.frekvencije)?drop.frekvencije:[]).forEach(addFreq);
+    out.frekvencije = Array.from(map.values()).sort((a,b)=>Number(a.hz)-Number(b.hz));
+
+    return out;
+  }
+
+  // --- state ---
+  let stl = null;
+  let duplicates = []; // [{aIdx,bIdx,score,reason,decision}]
+  let report = [];
+
+  function detectDuplicates(symptomi){
+    const pairs = [];
+    // cheap bucket by first 2 letters of normalized name
+    const buckets = new Map();
+    simptomi.forEach((s, idx)=>{
+      const name = normName(s.naziv || s.id);
+      const key = name.slice(0,2) || '__';
+      if(!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push({idx,name});
+    });
+
+    const TH = 0.92;
+    for(const [key, arr] of buckets.entries()){
+      for(let i=0;i<arr.length;i++){
+        for(let j=i+1;j<arr.length;j++){
+          const a = simptomi[arr[i].idx];
+          const b = simptomi[arr[j].idx];
+          const an = a.naziv || a.id;
+          const bn = b.naziv || b.id;
+          const score = jaroWinkler(an, bn);
+          if(score < TH) continue;
+
+          const mkA = (typeof a.mkb10==='object' && a.mkb10)? (a.mkb10.code||'') : (typeof a.mkb10==='string'?a.mkb10:'');
+          const mkB = (typeof b.mkb10==='object' && b.mkb10)? (b.mkb10.code||'') : (typeof b.mkb10==='string'?b.mkb10:'');
+          const sameMkb = mkA && mkB && mkA===mkB;
+
+          const reason = sameMkb ? 'Naziv+sličnost+isti MKB' : 'Naziv+sličnost';
+          pairs.push({aIdx: arr[i].idx, bIdx: arr[j].idx, score, reason, decision:'skip'});
+        }
+      }
+    }
+    // sort by score desc
+    pairs.sort((x,y)=>y.score-x.score);
+    return pairs.slice(0, 5000);
+  }
+
+  function fieldScore(s){
+    // count filled fields to help choose default keep
+    let n=0;
+    const inc = (v)=>{ if(!empty(v)) n++; };
+    inc(s.opis);
+    if(s.mkb10){
+      if(typeof s.mkb10==='string'){ inc(s.mkb10); }
+      else { inc(s.mkb10.code); inc(s.mkb10.opis); inc(s.mkb10.izvor); }
+    }
+    if(s.psihosomatika){ inc(s.psihosomatika.uzrok); inc(s.psihosomatika.lek); }
+    if(s.afirmacija){ inc(s.afirmacija.tekst); inc(s.afirmacija.autor); inc(s.afirmacija.izvor); }
+    if(s.molitva){ inc(s.molitva.tekst); inc(s.molitva.izvor); }
+    if(s.narodni_lek){ inc(s.narodni_lek.opis || s.narodni_lek.tekst); }
+    if(s.akupresura){ inc(Array.isArray(s.akupresura)?s.akupresura.length:1); }
+    if(Array.isArray(s.frekvencije)) inc(s.frekvencije.length);
+    return n;
+  }
+
+  function render(){
+    const out = $('out');
+    out.innerHTML = '';
+    if(!stl) return;
+
+    const simptomi = stl.simptomi;
+    const shown = duplicates.slice(0, 200); // UI cap
+    const total = duplicates.length;
+
+    const info = `Učitano STL: ${simptomi.length} simptoma. Potencijalni duplikati: ${total}. Prikazujem prvih ${shown.length}.`;
+    log(info);
+
+    shown.forEach((p, idx)=>{
+      const a = simptomi[p.aIdx];
+      const b = simptomi[p.bIdx];
+
+      const aFill = fieldScore(a);
+      const bFill = fieldScore(b);
+      const suggested = (aFill>=bFill) ? 'keepA' : 'keepB';
+      if(p.decision==='skip') p.decision = suggested;
+
+      const el = document.createElement('div');
+      el.className = 'group';
+      el.innerHTML = `
+        <div class="ghead">
+          <div>
+            <span class="pill">#${idx+1}</span>
+            <span class="pill">score: ${p.score.toFixed(3)}</span>
+            <span class="pill">${p.reason}</span>
+          </div>
+          <div class="row">
+            <label class="muted"><input type="checkbox" data-check="${idx}" checked/> uključi</label>
+            <select data-decision="${idx}">
+              <option value="keepA">Zadrži A (obriši B)</option>
+              <option value="keepB">Zadrži B (obriši A)</option>
+              <option value="mergeA">MERGE → A (obriši B)</option>
+              <option value="mergeB">MERGE → B (obriši A)</option>
+              <option value="skip">Preskoči</option>
+            </select>
+          </div>
+        </div>
+        <div class="gbody">
+          <table>
+            <thead><tr><th style="width:50%">A</th><th style="width:50%">B</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>
+                  <div><b>${(a.naziv||'').replace(/</g,'&lt;')}</b></div>
+                  <div class="muted small mono">id: ${a.id} • uid: ${a.uid ?? '—'}</div>
+                  <div class="muted small">MKB: ${typeof a.mkb10==='object' && a.mkb10 ? (a.mkb10.code||'—') : (a.mkb10||'—')}</div>
+                  <div class="muted small">Frekvencije: ${(a.frekvencije||[]).length}</div>
+                  <div class="muted small">Popunjenost: ${aFill}</div>
+                </td>
+                <td>
+                  <div><b>${(b.naziv||'').replace(/</g,'&lt;')}</b></div>
+                  <div class="muted small mono">id: ${b.id} • uid: ${b.uid ?? '—'}</div>
+                  <div class="muted small">MKB: ${typeof b.mkb10==='object' && b.mkb10 ? (b.mkb10.code||'—') : (b.mkb10||'—')}</div>
+                  <div class="muted small">Frekvencije: ${(b.frekvencije||[]).length}</div>
+                  <div class="muted small">Popunjenost: ${bFill}</div>
+                </td>
+              </tr>
+              <tr>
+                <td class="muted small">${(a.opis||'').slice(0,180)}</td>
+                <td class="muted small">${(b.opis||'').slice(0,180)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      `;
+      out.appendChild(el);
+
+      const sel = el.querySelector('select');
+      sel.value = p.decision;
+      sel.addEventListener('change', ()=>{ p.decision = sel.value; });
+    });
+
+    $('btnApply').disabled = duplicates.length===0;
+    $('btnReport').disabled = duplicates.length===0;
+  }
+
+  async function loadStlFromData(){
+    const res = await fetch('./data/SINET_STL.json', {cache:'no-store'});
+    if(!res.ok) throw new Error('Ne mogu da učitam data/SINET_STL.json ('+res.status+')');
+    const j = await res.json();
+    if(!isSTLCatalog(j)) throw new Error('data/SINET_STL.json nije STL format (očekujem {meta, simptomi[]}).');
+    stl = j;
+    $('btnFind').disabled = false;
+    render();
+  }
+
+  $('btnUseData').addEventListener('click', async ()=>{
+    try{ await loadStlFromData(); } catch(e){ log('GREŠKA: '+e.message); }
+  });
+
+  $('file').addEventListener('change', async (ev)=>{
+    const f = ev.target.files && ev.target.files[0];
+    if(!f) return;
+    try{
+      const txt = await f.text();
+      const j = JSON.parse(txt);
+      if(!isSTLCatalog(j)) throw new Error('Fajl nije STL format (očekujem {meta, simptomi[]}).');
+      stl = j;
+      $('btnFind').disabled = false;
+      render();
+    }catch(e){
+      log('GREŠKA: '+e.message);
+    }
+  });
+
+  $('btnFind').addEventListener('click', ()=>{
+    if(!stl) return;
+    duplicates = detectDuplicates(stl.simptomi);
+    report = [];
+    render();
+  });
+
+  function applyDecisions(){
+    const simptomi = stl.simptomi.slice();
+    const removed = new Set();
+    const merged = new Map(); // idx -> mergedSymptom
+    let applied = 0;
+
+    duplicates.slice(0,200).forEach((p, localIdx)=>{
+      const groupEl = document.querySelector('[data-decision="'+localIdx+'"]')?.closest('.group');
+      const chk = groupEl?.querySelector('[data-check="'+localIdx+'"]');
+      const enabled = chk ? chk.checked : true;
+      if(!enabled) return;
+
+      const a = simptomi[p.aIdx];
+      const b = simptomi[p.bIdx];
+      if(!a || !b) return;
+
+      if(p.decision==='keepA'){
+        removed.add(p.bIdx);
+        report.push({a:a.id,b:b.id,action:'keepA',score:p.score,reason:p.reason});
+        applied++;
+      } else if(p.decision==='keepB'){
+        removed.add(p.aIdx);
+        report.push({a:a.id,b:b.id,action:'keepB',score:p.score,reason:p.reason});
+        applied++;
+      } else if(p.decision==='mergeA'){
+        const m = mergeSTL(a,b);
+        merged.set(p.aIdx, m);
+        removed.add(p.bIdx);
+        report.push({a:a.id,b:b.id,action:'mergeA',score:p.score,reason:p.reason});
+        applied++;
+      } else if(p.decision==='mergeB'){
+        const m = mergeSTL(b,a);
+        merged.set(p.bIdx, m);
+        removed.add(p.aIdx);
+        report.push({a:a.id,b:b.id,action:'mergeB',score:p.score,reason:p.reason});
+        applied++;
+      }
+    });
+
+    // build new list
+    const outList = [];
+    simptomi.forEach((s, idx)=>{
+      if(removed.has(idx)) return;
+      outList.push(merged.get(idx) || s);
+    });
+
+    // audit entry
+    const out = JSON.parse(JSON.stringify(stl));
+    out.simptomi = outList;
+    out.meta = out.meta || {};
+    out.meta.audit = Array.isArray(out.meta.audit) ? out.meta.audit : [];
+    out.meta.audit.push({
+      ts: new Date().toISOString(),
+      tool: 'sinet-deduplicator',
+      toolVersion: '0.1.0',
+      mode: 'dedupe',
+      summary: { before: simptomi.length, after: outList.length, applied }
+    });
+
+    return out;
+  }
+
+  $('btnApply').addEventListener('click', ()=>{
+    if(!stl) return;
+    const out = applyDecisions();
+    downloadJson('SINET_STL.deduped.json', out);
+    log('OK: preuzet SINET_STL.deduped.json • '+out.simptomi.length+' simptoma.');
+  });
+
+  $('btnReport').addEventListener('click', ()=>{
+    const out = {
+      ts: new Date().toISOString(),
+      tool: 'sinet-deduplicator',
+      decisions: report
+    };
+    downloadJson('SINET_DEDUPE_REPORT.json', out);
+    log('OK: preuzet report ('+report.length+' odluka).');
+  });
+
+  // initial
+  log('Spremno. Učitaj STL fajl pa klikni "Nađi duplikate".');
+</script>
+</body>
+</html>

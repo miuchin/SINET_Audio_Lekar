@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <meta charset="UTF-8">
+    <title>SINET INSPEKTOR v15.0 (Universal Fix)</title>
+    <style>
+        :root { --primary: #2c3e50; --accent: #3498db; --danger: #e74c3c; --warning: #f1c40f; --success: #27ae60; --light: #ecf0f1; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; background: #f4f7f6; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        
+        /* HEADER */
+        .top-bar { background: var(--primary); color: white; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .stats-bar { display: flex; gap: 20px; font-size: 0.9rem; }
+        .stat-item span { font-weight: bold; color: var(--warning); }
+
+        /* LAYOUT */
+        .main-layout { display: flex; flex: 1; overflow: hidden; }
+        
+        /* SIDEBAR */
+        .sidebar { width: 350px; background: white; border-right: 1px solid #ddd; display: flex; flex-direction: column; }
+        .filters { padding: 15px; background: #f8f9fa; border-bottom: 1px solid #ddd; }
+        
+        .upload-btn { background: var(--warning); color: #222; width: 100%; padding: 12px; border: none; font-weight: bold; cursor: pointer; border-radius: 4px; margin-bottom: 15px; font-size: 0.95rem; }
+        .upload-btn:hover { background: #e0b802; }
+
+        .filter-btn { display: block; width: 100%; padding: 10px; margin-bottom: 5px; border: 1px solid #ddd; background: white; cursor: pointer; text-align: left; border-radius: 4px; font-size: 0.9rem; }
+        .filter-btn:hover { background: #eee; }
+        .filter-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+        .filter-btn.missing { border-left: 5px solid var(--danger); }
+        
+        .list-container { flex: 1; overflow-y: auto; }
+        .list-item { padding: 12px 15px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 0.9rem; }
+        .list-item:hover { background: #eaf6ff; }
+        .list-item.selected { background: var(--accent); color: white; }
+        .tag-missing { display: inline-block; width: 10px; height: 10px; background: var(--danger); border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+
+        /* EDITOR AREA */
+        .editor { flex: 1; padding: 20px; overflow-y: auto; background: #f4f7f6; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        
+        /* AI BOX */
+        @keyframes pulseBorder { 0% { box-shadow: 0 0 0 0 rgba(142, 68, 173, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(142, 68, 173, 0); } 100% { box-shadow: 0 0 0 0 rgba(142, 68, 173, 0); } }
+        .ai-suggestion-box { background: #fdf5ff; border: 2px solid #8e44ad; padding: 20px; border-radius: 8px; margin-bottom: 20px; display: none; animation: pulseBorder 2s infinite; }
+        .ai-header { color: #8e44ad; font-weight: bold; font-size: 1.1rem; border-bottom: 1px solid #e1d2ea; padding-bottom: 10px; margin-bottom: 10px; }
+        
+        /* FORM */
+        .field-group { margin-bottom: 15px; }
+        label { display: block; font-size: 0.8rem; font-weight: bold; margin-bottom: 5px; color: #555; }
+        input, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; box-sizing: border-box; }
+        
+        /* FOOTER */
+        .bottom-bar { padding: 15px; background: white; border-top: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+        .btn-dl { background: var(--primary); color: white; padding: 12px 25px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .btn-save { background: var(--success); color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .btn-ai { background: #8e44ad; color: white; width:100%; padding: 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn-ai:hover { background: #71368a; }
+
+    </style>
+</head>
+<body>
+
+<div class="top-bar">
+    <div style="font-weight:bold; font-size:1.2rem;">🕵️‍♂️ SINET INSPEKTOR v15.0</div>
+    <div class="stats-bar">
+        <div class="stat-item">Ukupno: <span id="sTotal">0</span></div>
+        <div class="stat-item">Bez MKB: <span id="sNoMkb" style="color:#e74c3c">0</span></div>
+    </div>
+</div>
+
+<div class="main-layout">
+    <div class="sidebar">
+        <div class="filters">
+            <button class="upload-btn" onclick="document.getElementById('fileIn').click()">📂 1. UČITAJ KATALOG</button>
+            <input type="file" id="fileIn" style="display:none" onchange="loadCatalog(this.files)">
+            
+            <label>FILTERI PRIKAZA:</label>
+            <button id="btn-all" class="filter-btn active" onclick="applyFilter('all')">📑 Prikaži Sve</button>
+            <button id="btn-mkb" class="filter-btn missing" onclick="applyFilter('mkb')">⚠️ Fali MKB-10</button>
+            <button id="btn-psy" class="filter-btn missing" onclick="applyFilter('psy')">⚠️ Fali Psihosomatika</button>
+            <button id="btn-pray" class="filter-btn missing" onclick="applyFilter('pray')">⚠️ Fali Molitva</button>
+        </div>
+        <div class="list-container" id="itemList">
+            <div style="padding:30px; color:#999; text-align:center;">
+                Čekam fajl...<br><br>
+                (Sada podržava sve formate)
+            </div>
+        </div>
+    </div>
+
+    <div class="editor">
+        <div id="emptyState" style="text-align:center; margin-top:100px; color:#999;">
+            <h3>Dobrodošli u SINET Inspektor</h3>
+            <p>Učitajte katalog da biste videli podatke.</p>
+        </div>
+
+        <div id="editorPanel" style="display:none;">
+            
+            <div id="aiBox" class="ai-suggestion-box">
+                <div class="ai-header">✨ AI PREPOZNAO DOPUNU!</div>
+                <div id="aiContent" style="margin-bottom:15px; font-size:0.95rem; line-height:1.5;"></div>
+                <button class="btn-ai" onclick="applyAiSuggestion()">⬇️ KLIKNI DA UBACIŠ PODATKE ⬇️</button>
+            </div>
+
+            <div class="card">
+                <h3>Osnovno</h3>
+                <div class="field-group"><label>Simptom</label><input type="text" id="simptom"></div>
+                <div class="field-group"><label>Oblast</label><input type="text" id="oblast"></div>
+            </div>
+
+            <div class="card" style="border-left: 5px solid var(--danger);">
+                <h3>Medicinski Podaci</h3>
+                <div class="field-group">
+                    <label>MKB-10 Šifra</label>
+                    <input type="text" id="mkb10" placeholder="npr. G43">
+                </div>
+            </div>
+
+            <div class="card" style="border-left: 5px solid var(--warning);">
+                <h3>Holistički Podaci</h3>
+                <div class="field-group">
+                    <label>Psihosomatski Uzrok</label>
+                    <textarea id="uzrok" rows="2"></textarea>
+                </div>
+                <div class="field-group">
+                    <label>Molitva / Afirmacija</label>
+                    <textarea id="molitva" rows="3"></textarea>
+                </div>
+                <div class="field-group">
+                    <label>Narodni Lek / Savet</label>
+                    <textarea id="lek" rows="2"></textarea>
+                </div>
+            </div>
+
+            <div style="text-align:right;">
+                <button class="btn-save" onclick="saveCurrent()">💾 SAČUVAJ IZMENE</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="bottom-bar">
+    <div id="msgBar" style="color:#666;">Sistem spreman.</div>
+    <button class="btn-dl" onclick="downloadFile()">🚀 PREUZMI SREĐENI FAJL</button>
+</div>
+
+<script>
+    // === MEGA BAZA ZNANJA (Sadrži akutne povrede) ===
+    const MEGA_BASE = {
+        "alergij": { mkb: "T78.4", uzrok: "Alergija na nekoga ili na sopstvenu moć.", lek: "Kalcijum, Vitamin C, kopriva.", molitva: "Svet je bezbedan. Ja sam bezbedan." },
+        "bol": { mkb: "R52", uzrok: "Krivica traži kaznu.", lek: "Kora bele vrbe, masaža.", molitva: "S ljubavlju otpuštam prošlost." },
+        "fraktur": { mkb: "T14.2", uzrok: "Pobuna protiv autoriteta.", lek: "Gavez mast, Mumie.", molitva: "Ja sam svoj autoritet." },
+        "lom": { mkb: "T14.2", uzrok: "Pobuna protiv autoriteta.", lek: "Gavez mast.", molitva: "U mom svetu ja sam svoj autoritet." },
+        "opekotin": { mkb: "T30", uzrok: "Bes. Ključanje u sebi.", lek: "Kantarion, aloja vera.", molitva: "Stvaram mir i harmoniju." },
+        "šok": { mkb: "T79.4", uzrok: "Trauma.", lek: "Rescue Remedy.", molitva: "Ja sam mir." },
+        "trovanj": { mkb: "T36-T65", uzrok: "Mentalna toksičnost.", lek: "Medicinski ugalj.", molitva: "Imam snagu da svarim sve." },
+        "ujed": { mkb: "T14.1", uzrok: "Otvorenost za napad. Krivica.", lek: "Soda bikarbona.", molitva: "Opraštam sebi." },
+        "ran": { mkb: "T14.1", uzrok: "Bes na sebe.", lek: "Kantarion, propolis.", molitva: "Volim sebe." },
+        "glava": { mkb: "R51", uzrok: "Samokritika.", lek: "Matičnjak.", molitva: "Volim sebe." },
+        "migren": { mkb: "G43", uzrok: "Otpor toku.", lek: "Krompir obloge.", molitva: "Opuštam se." },
+        "varenj": { mkb: "K30", uzrok: "Strah.", lek: "Nana.", molitva: "Varim život s lakoćom." },
+        "gastrit": { mkb: "K29", uzrok: "Neizvesnost.", lek: "Kupus.", molitva: "Siguran sam." },
+        "srce": { mkb: "I00", uzrok: "Nedostatak radosti.", lek: "Glog.", molitva: "Radost." },
+        "pritisak": { mkb: "I10", uzrok: "Emocionalni pritisak.", lek: "Beli luk.", molitva: "Mir." },
+        "koža": { mkb: "L00", uzrok: "Anksioznost.", lek: "Neven.", molitva: "Zaštićen sam." },
+        "ekcem": { mkb: "L20", uzrok: "Antagonizam.", lek: "Noćurak.", molitva: "Harmonija." },
+        "leđa": { mkb: "M54", uzrok: "Nedostatak podrške.", lek: "Kantarion.", molitva: "Verujem životu." },
+        "zubi": { mkb: "K00", uzrok: "Neodlučnost.", lek: "Žalfija.", molitva: "Donosim odluke." }
+    };
+
+    let catalog = [];
+    let currentIndex = -1;
+    let currentFilter = 'all';
+    let currentAiMatch = null;
+
+    // === UNIVERZALNI LOADER ===
+    function loadCatalog(files) {
+        const r = new FileReader();
+        r.onload = e => {
+            try {
+                const raw = JSON.parse(e.target.result);
+                
+                // DETEKTIVSKA LOGIKA: Gde su podaci?
+                if (Array.isArray(raw)) {
+                    // Slučaj 1: Čist niz (ako nije umotan)
+                    // Provera da li je možda niz sa jednim objektom koji sadrži niz
+                    if (raw.length === 1 && raw[0].items && Array.isArray(raw[0].items)) {
+                        catalog = raw[0].items; // Otpakuj Inception
+                    } else {
+                        catalog = raw;
+                    }
+                } else if (raw.items && Array.isArray(raw.items)) {
+                    // Slučaj 2: { items: [...] }
+                    catalog = raw.items;
+                } else if (raw.entries && Array.isArray(raw.entries)) {
+                    // Slučaj 3: Neki drugi format
+                    catalog = raw.entries;
+                } else {
+                    throw new Error("Ne prepoznajem format fajla.");
+                }
+
+                // VALIDACIJA: Da li su stavke validne?
+                if (catalog.length > 0 && !catalog[0].simptom) {
+                    // Ako prva stavka nema simptom, možda je undefined
+                    alert("Upozorenje: Podaci izgledaju oštećeno. Proverite fajl.");
+                }
+
+                // INICIJALIZACIJA UI
+                updateStats();
+                applyFilter('all');
+                document.getElementById('msgBar').innerText = `✅ Uspešno učitano ${catalog.length} stavki.`;
+                document.getElementById('emptyState').innerHTML = `<h3>Spreman!</h3><p>Kliknite na dugme <b>"⚠️ Fali MKB-10"</b> da počnete.</p>`;
+
+            } catch(err) {
+                alert("Greška: " + err.message);
+                console.error(err);
+            }
+        };
+        r.readAsText(files[0]);
+    }
+
+    function updateStats() {
+        document.getElementById('sTotal').innerText = catalog.length;
+        document.getElementById('sNoMkb').innerText = catalog.filter(i => !i.mkb10).length;
+    }
+
+    function applyFilter(type) {
+        currentFilter = type;
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        
+        const btnId = 'btn-' + type;
+        const btn = document.getElementById(btnId);
+        if(btn) btn.classList.add('active');
+
+        const listEl = document.getElementById('itemList');
+        listEl.innerHTML = "";
+        
+        let count = 0;
+
+        catalog.forEach((item, idx) => {
+            let show = false;
+            const h = item.holisticki || { psihosomatika:{}, duhovnost:{}, saveti:{} };
+
+            if (type === 'all') show = true;
+            else if (type === 'mkb' && !item.mkb10) show = true;
+            else if (type === 'psy' && !h.psihosomatika?.uzrok) show = true;
+            else if (type === 'pray' && !h.duhovnost?.tekst) show = true;
+            else if (type === 'alt' && !h.saveti?.narodno) show = true;
+
+            if (show) {
+                count++;
+                const div = document.createElement('div');
+                div.className = "list-item";
+                if(idx === currentIndex) div.classList.add('selected');
+                
+                let icon = "";
+                if(!item.mkb10) icon = `<span class="tag-missing" title="Fali"></span>`;
+                
+                // Sigurnosna provera za prikaz
+                const title = item.simptom || "Nepoznat simptom";
+                const cat = item.oblast || "Razno";
+
+                div.innerHTML = `${icon} <strong>${title}</strong><br><small style="color:#777">${cat}</small>`;
+                div.onclick = () => loadEditor(idx);
+                listEl.appendChild(div);
+            }
+        });
+
+        if (count === 0) listEl.innerHTML = `<div style="padding:20px; text-align:center;">Sve je popunjeno u ovoj kategoriji! 🎉</div>`;
+    }
+
+    function loadEditor(idx) {
+        currentIndex = idx;
+        const item = catalog[idx];
+        applyFilter(currentFilter); // Re-highlight
+
+        document.getElementById('emptyState').style.display = 'none';
+        document.getElementById('editorPanel').style.display = 'block';
+
+        // Fill Form
+        document.getElementById('simptom').value = item.simptom || "";
+        document.getElementById('oblast').value = item.oblast || "";
+        document.getElementById('mkb10').value = item.mkb10 || "";
+        
+        const h = item.holisticki || {};
+        const p = h.psihosomatika || {};
+        const d = h.duhovnost || {};
+        const s = h.saveti || {};
+
+        document.getElementById('uzrok').value = p.uzrok || "";
+        document.getElementById('molitva').value = d.tekst || "";
+        document.getElementById('lek').value = s.narodno || "";
+
+        checkAiMatch(item);
+    }
+
+    function checkAiMatch(item) {
+        const search = (item.simptom + " " + item.oblast).toLowerCase();
+        const box = document.getElementById('aiBox');
+        currentAiMatch = null;
+
+        for (const [key, data] of Object.entries(MEGA_BASE)) {
+            if (search.includes(key)) {
+                currentAiMatch = data;
+                box.style.display = "block";
+                document.getElementById('aiContent').innerHTML = `
+                    <strong>MKB:</strong> ${data.mkb} &nbsp;|&nbsp; 
+                    <strong>Lek:</strong> ${data.lek} <br>
+                    <strong>Uzrok:</strong> <span style="color:#555">${data.uzrok}</span>
+                `;
+                return;
+            }
+        }
+        box.style.display = "none";
+    }
+
+    function applyAiSuggestion() {
+        if(!currentAiMatch) return;
+        document.getElementById('mkb10').value = currentAiMatch.mkb;
+        document.getElementById('uzrok').value = currentAiMatch.uzrok;
+        document.getElementById('molitva').value = currentAiMatch.molitva;
+        document.getElementById('lek').value = currentAiMatch.lek;
+        saveCurrent();
+    }
+
+    function saveCurrent() {
+        if(currentIndex === -1) return;
+        const item = catalog[currentIndex];
+
+        item.simptom = document.getElementById('simptom').value;
+        item.oblast = document.getElementById('oblast').value;
+        item.mkb10 = document.getElementById('mkb10').value;
+
+        // Init structure
+        if(!item.holisticki) item.holisticki = {};
+        if(!item.holisticki.psihosomatika) item.holisticki.psihosomatika = {};
+        if(!item.holisticki.duhovnost) item.holisticki.duhovnost = {};
+        if(!item.holisticki.saveti) item.holisticki.saveti = {};
+
+        item.holisticki.psihosomatika.uzrok = document.getElementById('uzrok').value;
+        item.holisticki.duhovnost.tekst = document.getElementById('molitva').value;
+        item.holisticki.saveti.narodno = document.getElementById('lek').value;
+
+        // Visual feedback
+        updateStats();
+        alert("✅ Sačuvano!");
+    }
+
+    function downloadFile() {
+        const finalObj = {
+            meta: { version: "15.0", date: new Date().toISOString() },
+            items: catalog
+        };
+        const blob = new Blob([JSON.stringify(finalObj, null, 2)], {type:"application/json"});
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "SINET_CATALOG_FULL.json";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+</script>
+
+</body>
+</html>

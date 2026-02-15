@@ -1,204 +1,208 @@
 /*
-    ====== SINET PROJECT INFO ======
-    Project: SINET Audio Lekar
-    File: js/db/indexed-db.js
-    Version: 1.0
-    Author: miuchins (Svetozar Miuchin)
-    Co-author: SINET AI (GPT Co-author)
-    Date: 2026-02-04
-    Description: IndexedDB wrapper for handling persistence (Resume state, Favorites, Logs).
-    Standard: SINET GEM v7.2 (Physical DB, No localStorage for critical data).
+  SINET Audio Lekar — IndexedDB Layer
+  File: js/db/indexed-db.js
+  Version: 1.2
+  Author: miuchins | Co-author: SINET AI
+  Notes:
+    - Favorites, main playlist, last session resume, audit log (append-only)
 */
 
-/* 🚩 START: DB Configuration */
 const DB_CONFIG = {
-    name: 'SINET_Audio_DB',
-    version: 1,
-    stores: {
-        state: 'key',        // key-value store za podešavanja i resume state
-        favorites: 'id',     // store za ID-eve omiljenih simptoma
-        playlists: 'id',     // store za korisničke plejliste
-        audit_log: '++id'    // auto-increment store za logove
-    }
+  name: "SINET_Audio_DB",
+  version: 3,
 };
-/* 🚩 END: DB Configuration */
 
-
-/* 🚩 START: Main DB Class */
 class SinetDB {
-    constructor() {
-        this.db = null;
-        this.isReady = false;
-    }
+  constructor() {
+    this.db = null;
+    this.isReady = false;
+  }
 
-    /**
-     * Inicijalizacija i otvaranje baze
-     */
-    async init() {
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open(DB_CONFIG.name, DB_CONFIG.version);
+  async init() {
+    if (this.isReady && this.db) return true;
 
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                
-                // Kreiranje Store-ova ako ne postoje
-                if (!db.objectStoreNames.contains('state')) {
-                    db.createObjectStore('state', { keyPath: 'key' });
-                }
-                if (!db.objectStoreNames.contains('favorites')) {
-                    db.createObjectStore('favorites', { keyPath: 'id' });
-                }
-                if (!db.objectStoreNames.contains('playlists')) {
-                    db.createObjectStore('playlists', { keyPath: 'id', autoIncrement: true });
-                }
-                if (!db.objectStoreNames.contains('audit_log')) {
-                    db.createObjectStore('audit_log', { keyPath: 'id', autoIncrement: true });
-                }
-                console.log("SINET DB: Upgrade complete.");
-            };
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_CONFIG.name, DB_CONFIG.version);
 
-            request.onsuccess = (event) => {
-                this.db = event.target.result;
-                this.isReady = true;
-                console.log("SINET DB: Connected successfully.");
-                this.logAction("SYSTEM", "Database initialized.");
-                resolve(true);
-            };
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
 
-            request.onerror = (event) => {
-                console.error("SINET DB: Connection error", event.target.error);
-                reject("DB Error");
-            };
-        });
-    }
-
-    /* =========================================
-       AUDIT LOG SYSTEM (SINET Standard G0.10)
-       ========================================= */
-    
-    async logAction(category, action, details = "") {
-        if (!this.db) return;
-        const entry = {
-            timestamp: new Date().toISOString(),
-            category: category,
-            action: action,
-            details: details,
-            userAgent: navigator.userAgent
-        };
-        return this._put('audit_log', entry);
-    }
-
-    async getAuditLog() {
-        return this._getAll('audit_log');
-    }
-
-    /* =========================================
-       RESUME STATE MANAGER (Ključno za Senior App)
-       ========================================= */
-
-    /**
-     * Čuva trenutno stanje playera (gde smo stali)
-     * @param {Object} stateData - { activePresetId, currentFreqIndex, elapsedTimeSec }
-     */
-    async savePlayerState(stateData) {
-        const payload = {
-            key: 'last_session',
-            data: stateData,
-            updatedAt: Date.now()
-        };
-        // Logujemo samo ako je došlo do promene preseta, da ne gušimo log
-        if (stateData.activePresetId) {
-            // Tihi save bez loga za svaku sekundu, loguje se samo start/stop u playeru
+        if (!db.objectStoreNames.contains("state")) {
+          db.createObjectStore("state", { keyPath: "key" });
         }
-        return this._put('state', payload);
-    }
-
-    /**
-     * Vraća gde smo stali
-     */
-    async getPlayerState() {
-        return this._get('state', 'last_session');
-    }
-
-    async clearPlayerState() {
-        return this._delete('state', 'last_session');
-    }
-
-    /* =========================================
-       FAVORITES MANAGER
-       ========================================= */
-
-    async toggleFavorite(simptomId) {
-        const existing = await this._get('favorites', simptomId);
-        if (existing) {
-            await this._delete('favorites', simptomId);
-            this.logAction("USER", "Removed Favorite", simptomId);
-            return false; // Removed
-        } else {
-            await this._put('favorites', { id: simptomId, addedAt: Date.now() });
-            this.logAction("USER", "Added Favorite", simptomId);
-            return true; // Added
+        if (!db.objectStoreNames.contains("favorites")) {
+          db.createObjectStore("favorites", { keyPath: "id" });
         }
-    }
+        if (!db.objectStoreNames.contains("playlists")) {
+          db.createObjectStore("playlists", { keyPath: "id", autoIncrement: true });
+        }
+        if (!db.objectStoreNames.contains("audit_log")) {
+          db.createObjectStore("audit_log", { keyPath: "id", autoIncrement: true });
+        }
+      };
 
-    async getFavorites() {
-        return this._getAll('favorites');
-    }
+      request.onsuccess = (event) => {
+        this.db = event.target.result;
+        this.isReady = true;
+        console.log("SINET DB: Ready");
+        resolve(true);
+      };
 
-    async isFavorite(simptomId) {
-        const item = await this._get('favorites', simptomId);
-        return !!item;
-    }
+      request.onerror = () => {
+        console.error("SINET DB: Init error", request.error);
+        reject(request.error);
+      };
+    });
+  }
 
-    /* =========================================
-       INTERNAL HELPERS (Generic Methods)
-       ========================================= */
+  async _ensure() {
+    if (!this.db || !this.isReady) await this.init();
+  }
 
-    async _put(storeName, item) {
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(storeName, 'readwrite');
-            const store = tx.objectStore(storeName);
-            const request = store.put(item);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
+  _tx(storeName, mode) {
+    if (!this.db) throw new Error("DB not initialized");
+    return this.db.transaction(storeName, mode).objectStore(storeName);
+  }
 
-    async _get(storeName, key) {
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(storeName, 'readonly');
-            const store = tx.objectStore(storeName);
-            const request = store.get(key);
-            request.onsuccess = () => resolve(request.result ? request.result.data || request.result : null);
-            request.onerror = () => reject(request.error);
-        });
-    }
+  _put(storeName, item) {
+    return new Promise((resolve, reject) => {
+      const store = this._tx(storeName, "readwrite");
+      const req = store.put(item);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
 
-    async _getAll(storeName) {
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(storeName, 'readonly');
-            const store = tx.objectStore(storeName);
-            const request = store.getAll();
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
+  _getRaw(storeName, key) {
+    return new Promise((resolve, reject) => {
+      const store = this._tx(storeName, "readonly");
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
 
-    async _delete(storeName, key) {
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(storeName, 'readwrite');
-            const store = tx.objectStore(storeName);
-            const request = store.delete(key);
-            request.onsuccess = () => resolve(true);
-            request.onerror = () => reject(request.error);
-        });
+  _get(storeName, key) {
+    return new Promise((resolve, reject) => {
+      const store = this._tx(storeName, "readonly");
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result ? (req.result.data ?? req.result) : null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  _getAll(storeName) {
+    return new Promise((resolve, reject) => {
+      const store = this._tx(storeName, "readonly");
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  _delete(storeName, key) {
+    return new Promise((resolve, reject) => {
+      const store = this._tx(storeName, "readwrite");
+      const req = store.delete(key);
+      req.onsuccess = () => resolve(true);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /* ---------- Audit (append-only) ---------- */
+  async logAction(category, action, details = "") {
+    try {
+      await this._ensure();
+      await this._put("audit_log", {
+        timestamp: new Date().toISOString(),
+        category, action, details,
+        userAgent: navigator.userAgent
+      });
+    } catch(e) {}
+  }
+
+  async getAuditLog(limit = 500) {
+    await this._ensure();
+    const all = await this._getAll("audit_log");
+    return all.slice(Math.max(0, all.length - limit));
+  }
+
+  /* ---------- Favorites ---------- */
+  async toggleFavorite(simptomId) {
+    await this._ensure();
+    const exists = await this._getRaw("favorites", simptomId);
+    if (exists) {
+      await this._delete("favorites", simptomId);
+      this.logAction("USER", "Removed Favorite", simptomId);
+      return false;
     }
+    await this._put("favorites", { id: simptomId, addedAt: Date.now() });
+    this.logAction("USER", "Added Favorite", simptomId);
+    return true;
+  }
+
+  async getFavorites() {
+    await this._ensure();
+    return this._getAll("favorites");
+  }
+
+  /* ---------- Main playlist ---------- */
+  async saveMainPlaylist(items) {
+    await this._ensure();
+    return this._put("state", { key: "main_playlist", data: Array.isArray(items) ? items : [], updatedAt: Date.now() });
+  }
+
+  async getMainPlaylist() {
+    await this._ensure();
+    const v = await this._get("state", "main_playlist");
+    return Array.isArray(v) ? v : [];
+  }
+
+  async clearMainPlaylist() {
+    await this._ensure();
+    return this._delete("state", "main_playlist");
+  }
+
+  /* ---------- Resume state ---------- */
+  async savePlayerState(stateData) {
+    await this._ensure();
+    return this._put("state", { key: "last_session", data: stateData || null, updatedAt: Date.now() });
+  }
+
+  async getPlayerState() {
+    await this._ensure();
+    return this._get("state", "last_session");
+  }
+
+  async clearPlayerState() {
+    await this._ensure();
+    return this._delete("state", "last_session");
+  }
+
+  /* ---------- Backup / Restore ---------- */
+  async exportAll() {
+    await this._ensure();
+    const state = await this._getAll("state");
+    const favorites = await this._getAll("favorites");
+    const audit = await this._getAll("audit_log");
+    return { exportedAt: new Date().toISOString(), state, favorites, audit };
+  }
+
+  async importAll(payload) {
+    await this._ensure();
+    if (!payload || typeof payload !== "object") throw new Error("Invalid backup file");
+
+    // read-only audit philosophy: DO NOT import audit
+    const state = Array.isArray(payload.state) ? payload.state : [];
+    const favorites = Array.isArray(payload.favorites) ? payload.favorites : [];
+
+    for (const s of state) await this._put("state", s);
+    for (const f of favorites) await this._put("favorites", f);
+
+    this.logAction("USER", "Restore Backup", "Imported state+favorites");
+    return true;
+  }
 }
 
-// Export globalne instance (Singleton)
-// OBAVEZNO: Kačimo ga direktno na window da bi ga app.js video!
 window.db = new SinetDB();
 console.log("SINET DB: Kreirana globalna instanca window.db");
-
-/* 🚩 END: Main DB Class */
-

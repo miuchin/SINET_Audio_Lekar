@@ -1,0 +1,464 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-02-10",
+  "source": "Preset-Brza Pomoć.txt (dedupe) + mandatory senior items",
+  "groups": [
+    {
+      "id": "senior",
+      "title": "🧓 STARIJI — Najčešće",
+      "description": "Brzi izbor najčešćih programa za starije. Ako nešto nije u katalogu, koristi AI upitnik.",
+      "defaultLimit": 30,
+      "entries": [
+        {
+          "label": "San i poremećaj spavanja",
+          "terms": [
+            "san",
+            "spavanje",
+            "nesanica",
+            "insomnia",
+            "poremećaj spavanja",
+            "sleep"
+          ],
+          "preferIds": []
+        },
+        {
+          "label": "Zubobolja & Infekcija (FULL)",
+          "terms": [
+            "zubobolja",
+            "infekcija"
+          ]
+        },
+        {
+          "label": "Migrena & Glavobolja (FULL)",
+          "terms": [
+            "migrena",
+            "glavobolja"
+          ]
+        },
+        {
+          "label": "Grčevi u mišićima (FULL)",
+          "terms": [
+            "grcevi",
+            "misicima"
+          ]
+        },
+        {
+          "label": "Opekotine & Rane (FULL)",
+          "terms": [
+            "opekotine",
+            "rane"
+          ]
+        },
+        {
+          "label": "Reumatoidni Artritis (MEGA)",
+          "terms": [
+            "reumatoidni",
+            "artritis"
+          ]
+        },
+        {
+          "label": "Psorijaza & Ekcem (TOTAL)",
+          "terms": [
+            "psorijaza",
+            "ekcem"
+          ]
+        },
+        {
+          "label": "Hašimoto (Štitna)",
+          "terms": [
+            "hasimoto"
+          ]
+        },
+        {
+          "label": "Lupus (SLE) - Podrška",
+          "terms": [
+            "lupus"
+          ]
+        },
+        {
+          "label": "Išijas & Kičma (KOMPLET)",
+          "terms": [
+            "isijas",
+            "kicma"
+          ]
+        },
+        {
+          "label": "Kolena & Hrskavica (FULL)",
+          "terms": [
+            "kolena",
+            "hrskavica"
+          ]
+        },
+        {
+          "label": "Upaljena Vilica (TMJ FULL)",
+          "terms": [
+            "upaljena",
+            "vilica"
+          ]
+        },
+        {
+          "label": "Osteoporoza (Kosti)",
+          "terms": [
+            "osteoporoza"
+          ]
+        },
+        {
+          "label": "Zatvor & Lenja Creva (FULL)",
+          "terms": [
+            "zatvor",
+            "lenja",
+            "creva"
+          ]
+        },
+        {
+          "label": "Kandida & Paraziti (CLEANSE)",
+          "terms": [
+            "kandida",
+            "paraziti"
+          ]
+        },
+        {
+          "label": "Jetra & Totalni Detoks",
+          "terms": [
+            "jetra",
+            "totalni",
+            "detoks"
+          ]
+        },
+        {
+          "label": "Nadutost & Iritabilni Kolon",
+          "terms": [
+            "nadutost",
+            "iritabilni",
+            "kolon"
+          ]
+        },
+        {
+          "label": "Visok Pritisak (KOMPLET)",
+          "terms": [
+            "visok",
+            "pritisak"
+          ]
+        },
+        {
+          "label": "Loša Cirkulacija (Extremiteti)",
+          "terms": [
+            "losa",
+            "cirkulacija"
+          ]
+        },
+        {
+          "label": "Nesanica (ULTRA DEEP SLEEP)",
+          "terms": [
+            "nesanica"
+          ]
+        },
+        {
+          "label": "Burnout & Anti-Stres (RESET)",
+          "terms": [
+            "burnout",
+            "anti",
+            "stres"
+          ]
+        },
+        {
+          "label": "Tinitus (Zujanje) - Terapija",
+          "terms": [
+            "tinitus"
+          ]
+        },
+        {
+          "label": "Grip & Virus (IMUNO BOMBA)",
+          "terms": [
+            "grip",
+            "virus"
+          ]
+        },
+        {
+          "label": "Sinusi & Alergija (FULL)",
+          "terms": [
+            "sinusi",
+            "alergija"
+          ]
+        },
+        {
+          "label": "Totalni Reset Energije",
+          "terms": [
+            "totalni",
+            "energije"
+          ]
+        },
+        {
+          "label": "Mršavljenje & Metabolizam (FULL)",
+          "terms": [
+            "mrsavljenje",
+            "metabolizam"
+          ]
+        },
+        {
+          "label": "Prostata (Muškarci)",
+          "terms": [
+            "prostata"
+          ]
+        },
+        {
+          "label": "PMS & Menopauza (Žene)",
+          "terms": [
+            "pms",
+            "menopauza"
+          ]
+        },
+        {
+          "label": "Akutna Zubobolja (SOS)",
+          "terms": [
+            "akutna",
+            "zubobolja"
+          ]
+        },
+        {
+          "label": "Migrena",
+          "terms": [
+            "migrena"
+          ]
+        },
+        {
+          "label": "Dečiji grčevi (Infantilne kolike)",
+          "terms": [
+            "deciji",
+            "grcevi"
+          ]
+        },
+        {
+          "label": "Opekotine (stepen 2)",
+          "terms": [
+            "opekotine"
+          ]
+        },
+        {
+          "label": "Osteoporoza",
+          "terms": [
+            "osteoporoza"
+          ]
+        },
+        {
+          "label": "Zatvor od opioida",
+          "terms": [
+            "zatvor",
+            "opioida"
+          ]
+        },
+        {
+          "label": "Sistemska Kandida (Protokol)",
+          "terms": [
+            "sistemska",
+            "kandida"
+          ]
+        },
+        {
+          "label": "Masna jetra",
+          "terms": [
+            "masna",
+            "jetra"
+          ]
+        },
+        {
+          "label": "Loša probava i nadutost",
+          "terms": [
+            "losa",
+            "probava",
+            "nadutost"
+          ]
+        },
+        {
+          "label": "Upala uha (Bol i pritisak)",
+          "terms": [
+            "upala",
+            "uha"
+          ]
+        },
+        {
+          "label": "Otežana cirkulacija",
+          "terms": [
+            "otezana",
+            "cirkulacija"
+          ]
+        },
+        {
+          "label": "Burnout (Sindrom pregorevanja)",
+          "terms": [
+            "burnout"
+          ]
+        },
+        {
+          "label": "Sinusi",
+          "terms": [
+            "sinusi"
+          ]
+        },
+        {
+          "label": "PMS",
+          "terms": [
+            "pms"
+          ]
+        },
+        {
+          "label": "Apsces zuba i Gnojne upale",
+          "terms": [
+            "apsces",
+            "zuba",
+            "gnojne",
+            "upale"
+          ]
+        },
+        {
+          "label": "Oporavak nakon vađenja zuba",
+          "terms": [
+            "oporavak",
+            "nakon",
+            "vađenja",
+            "zuba"
+          ]
+        },
+        {
+          "label": "Post-herpetična neuralgija",
+          "terms": [
+            "post",
+            "herpeticna",
+            "neuralgija"
+          ]
+        },
+        {
+          "label": "Diskus Hernija (Regeneracija diska)",
+          "terms": [
+            "diskus",
+            "hernija"
+          ]
+        },
+        {
+          "label": "Smrznuto rame (Adhezivni kapsulitis)",
+          "terms": [
+            "smrznuto",
+            "rame"
+          ]
+        },
+        {
+          "label": "Akutni Lumbago (Ukočenost leđa)",
+          "terms": [
+            "akutni",
+            "lumbago"
+          ]
+        },
+        {
+          "label": "Išijas Pro (Oslobađanje nerva)",
+          "terms": [
+            "isijas",
+            "pro"
+          ]
+        },
+        {
+          "label": "Neuralgija Trigeminusa",
+          "terms": [
+            "neuralgija",
+            "trigeminusa"
+          ]
+        },
+        {
+          "label": "Herpes na usni (SOS)",
+          "terms": [
+            "herpes",
+            "usni"
+          ]
+        },
+        {
+          "label": "Učestalo mokrenje na nervnoj bazi",
+          "terms": [
+            "ucestalo",
+            "mokrenje",
+            "nervnoj",
+            "bazi"
+          ]
+        },
+        {
+          "label": "Post-Covid oporavak pluća",
+          "terms": [
+            "post",
+            "covid",
+            "oporavak",
+            "pluca"
+          ]
+        },
+        {
+          "label": "Grip i prehlada (Generalno)",
+          "terms": [
+            "grip",
+            "prehlada"
+          ]
+        },
+        {
+          "label": "Herpes Simplex",
+          "terms": [
+            "herpes",
+            "simplex"
+          ]
+        },
+        {
+          "label": "Podizanje imuniteta (General)",
+          "terms": [
+            "podizanje",
+            "imuniteta"
+          ]
+        },
+        {
+          "label": "Cervikalni sindrom (Vratna kičma)",
+          "terms": [
+            "cervikalni"
+          ]
+        },
+        {
+          "label": "Tinitus - Pro Set (Zujanje)",
+          "terms": [
+            "tinitus",
+            "pro"
+          ]
+        },
+        {
+          "label": "Hronični Sinusitis (Upala sinusa)",
+          "terms": [
+            "hronicni",
+            "sinusitis"
+          ]
+        },
+        {
+          "label": "Stimulacija kolagena i elastina (Protiv bora)",
+          "terms": [
+            "stimulacija",
+            "kolagena",
+            "elastina"
+          ]
+        },
+        {
+          "label": "Vitamini i minerali (Smernice)",
+          "terms": [
+            "vitamini",
+            "minerali"
+          ],
+          "fallbackToAI": true
+        },
+        {
+          "label": "Relaks (opšte)",
+          "terms": [
+            "relaks"
+          ],
+          "fallbackToAI": true
+        },
+        {
+          "label": "Bolovi u vilici (TMJ)",
+          "terms": [
+            "bolovi",
+            "vilici"
+          ]
+        }
+      ]
+    }
+  ]
+}

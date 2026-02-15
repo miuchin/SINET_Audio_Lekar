@@ -1,59 +1,104 @@
-# ⚡ SINET AUDIO LEKAR v3.2 (Offline PWA)
+# SINET Audio Lekar + NUTRI Pro (Public Demo)
 
-> **The Sovereign Frequency Healing Tool / Suvereni Alat za Frekventnu Terapiju**
+**Authors:** miuchins (Svetozar Miuchin) • **Co-author:** SINET AI  
+**Status:** Public demo + ongoing development  
+**Date:** 2026-02-15
 
-![SINET Logo](https://cdn-icons-png.flaticon.com/128/3063/3063822.png)
-
-## 🇬🇧 ENGLISH DESCRIPTION
-
-**SINET Audio** is an open-source, offline-first Progressive Web App (PWA) designed to generate therapeutic Rife and Solfeggio frequencies in real-time using the Web Audio API.
-
-### 🌟 Key Features
-* **🏥 Medical Grade Presets:** 40+ Full Spectrum protocols (Autoimmune, Pain, Sleep, Detox).
-* **📴 100% Offline:** Works without internet connection after installation.
-* **🔊 Real-Time Synthesis:** Pure mathematical sound generation (Oscillators), no MP3 files.
-* **🎵 Custom Playlists:** Create sequences of therapies tailored to your needs.
-* **💾 Backup & Restore:** Export your data to JSON and restore it on any device.
-* **🛡️ Privacy First:** Zero tracking, zero ads, local IndexedDB storage.
-
-### 🚀 Usage
-1.  Open the live link (Netlify/GitHub Pages).
-2.  Install as PWA (Add to Home Screen).
-3.  Select a symptom from "Fast Aid" or Catalog.
-4.  Put on headphones (optional but recommended) and relax.
+> ⚠️ Medical disclaimer: This project is **educational/informational** and **not a medical device**. It does not provide diagnosis or treatment. Always consult qualified medical professionals.
 
 ---
 
-## 🇷🇸 SRPSKI OPIS
+## 🇷🇸 SR — Pregled
 
-**SINET Audio** je besplatna, "offline-first" aplikacija koja koristi vaš telefon ili računar za generisanje lekovitih frekvencija (Rife i Solfeđo) u realnom vremenu.
+SINET je offline‑friendly web aplikacija (PWA) za:
+- **Audio Lekar**: holistički protokoli (frekvencije), katalog simptoma, playlist/protokoli, favoriti, pomoć (Help).
+- **Admin Tools**: Inspector (audit), Converter (STL ↔ runtime), DeDuplikator, Runtime generator.
+- **NUTRI Pro** (Preview): kanonska baza namirnica + batch obogaćivanje putem AI “NOTES patch” sistema (bez izmišljanja numerike).
 
-### 🌟 Glavne Mogućnosti
-* **🏥 Sistemski Preseti:** Preko 40 složenih protokola (Reuma, Nesanica, Pritisak, Varenje...).
-* **📴 Radi bez Interneta:** Idealno za putovanja i mesta bez signala.
-* **🔊 Čist Zvuk:** Ne koristi snimke, već generiše zvuk matematičkom preciznošću.
-* **🎵 Moja Playlista:** Napravite svoj redosled terapija (npr. Zubi -> Glava -> San).
-* **💾 Čuvanje Podataka:** Opcija za Backup i Restore vaših favorita.
-* **🛡️ Privatnost:** Vaši podaci ostaju isključivo na vašem telefonu.
+### Šta je kanon?
+- `data/SINET_STL.json` = **KANON** za simptome (Source of Truth)
+- `data/NUTRI_STL.json` = **KANON** za namirnice (Source of Truth)
+- Runtime JSON (npr. `SINET_CATALOG.runtime.json`) je **derivat** (generiše se iz kanona)
 
-### 🚀 Kako instalirati?
-1.  Otvorite link u pretraživaču (Chrome preporuka).
-2.  Kliknite na dugme **"INSTALIRAJ"** ili "Add to Home Screen".
-3.  Pokrenite aplikaciju sa ekrana svog telefona.
+### PUBLIC redosled (strane)
+1) **App (demo):** `index.html`  
+2) **Admin Tools (preview):** `admin.html`  
+3) **NUTRI Studio (preview):** `sinet-nutri-studio_v1.html`
+
+---
+
+## 🇬🇧 EN — Overview
+
+SINET is an offline‑friendly web app (PWA) that includes:
+- **Audio Doctor**: holistic frequency protocols, symptoms catalog, playlists/protocols, favorites, help.
+- **Admin Tools**: Inspector (audit), Converter (STL ↔ runtime), DeDuplicator, Runtime generator.
+- **NUTRI Pro** (Preview): canonical foods database + batch enrichment via AI “NOTES patch” workflow (no invented numeric nutrition).
+
+### What is canonical?
+- `data/SINET_STL.json` = **CANON** for symptoms (Source of Truth)
+- `data/NUTRI_STL.json` = **CANON** for foods (Source of Truth)
+- Runtime JSON is a **derivative** generated from canon.
+
+### PUBLIC order (pages)
+1) **App:** `index.html`  
+2) **Admin Tools:** `admin.html`  
+3) **NUTRI Studio:** `sinet-nutri-studio_v1.html`
 
 ---
 
-## 🛠️ Tech Stack / Tehnologije
-* **Core:** Vanilla JavaScript (ES6+), HTML5, CSS3 (Variables).
-* **Audio Engine:** Web Audio API (OscillatorNode, GainNode).
-* **Database:** IndexedDB (via Wrapper).
-* **PWA:** Service Worker, Web Manifest, Wake Lock API.
+# Features (Detaljno / Detailed)
 
-## ⚖️ Disclaimer / Odricanje odgovornosti
-*This software is for experimental purposes only. It is not a replacement for professional medical advice.*
-*Ovaj softver je eksperimentalan i nije zamena za lekara.*
+## 1) Audio Lekar (App)
+- Loads catalog from `/data/` (STL canon)
+- Search by name/description/MKB-10
+- Areas (Oblasti) + symptom listing
+- Details modal: medical (MKB-10), holistic (psychosomatic cause, prayer/affirmation, folk remedy)
+- Playlist/protocol: ordered playback, timers
+- Favorites
+- Exports (STL JSON view/all + legacy TXT)
+- PWA offline + `index-nosw.html` (no-cache emergency)
+
+## 2) Admin Tools
+- Inspector: audit missing fields, filters, STL/runtime viewing
+- Converter: STL ↔ runtime, auto-detection, normalization, write-back
+- DeDuplicator: duplicate detection + merge checklist
+- Runtime generator: `SINET_STL.json` → runtime JSON
+- NUTRI Studio (Preview): batch engine + prompt generator + import NOTES + merge + export canon
+
+## 3) NUTRI Pro (Preview) — workflow
+1) Load canon: `data/NUTRI_STL.json`
+2) Choose batch: offset + size (50/100/150)
+3) Generate Prompt A (enrich_batch) → send to AI
+4) AI returns SINET_NUTRI_NOTES (JSON-only)
+5) Import NOTES → Merge into canon
+6) Export canon → new `NUTRI_STL.json`
+
+> Numeric values (kcal, mg, %) must not be invented. If no source is available, mark “NEEDS VERIFICATION”.
 
 ---
-**Architect & Author:** Michin Svetozar (miuchins)  
-**Co-Author:** SINET AI  
-*Created in Serbia, 2026.*
+
+# Install & Run
+
+## Local
+```bash
+python -m http.server 8000
+```
+
+Open:
+- App: `http://localhost:8000/index.html`
+- Admin: `http://localhost:8000/admin.html`
+- No-cache: `http://localhost:8000/index-nosw.html?fresh=1`
+
+## Netlify (static)
+- Build command: (none)
+- Publish directory: repo root `/`
+
+---
+
+# Roadmap
+See: `00_plan_razvoja_SINET_v1.0.md`
+
+---
+
+# License
+TBD (MIT / Apache-2.0 / CC BY-NC for data, etc.)

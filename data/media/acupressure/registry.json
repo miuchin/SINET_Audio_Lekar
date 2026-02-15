@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "schema": "SINET-Acupressure-Media-Registry",
+    "version": "1.0",
+    "generatedAt": "2026-02-10",
+    "notes": "Offline registry for acupressure images. Add only properly licensed/owned media. Keep paths relative to project root."
+  },
+  "points": {
+    "LI4": {
+      "name": "Hegu",
+      "default": "",
+      "files": []
+    },
+    "PC6": {
+      "name": "Neiguan",
+      "default": "",
+      "files": []
+    },
+    "ST36": {
+      "name": "Zusanli",
+      "default": "",
+      "files": []
+    }
+  }
+}

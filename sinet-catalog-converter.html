@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="sr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SINET – Catalog Converter (Old → STL)</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;margin:0;background:#0b1220;color:#e8eefc}
+    header{padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.08);background:#0f1930}
+    h1{font-size:18px;margin:0}
+    main{max-width:980px;margin:0 auto;padding:18px}
+    .card{background:#0f1930;border:1px solid rgba(255,255,255,.09);border-radius:14px;padding:14px;margin:12px 0}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .btn{background:#2b6cff;color:white;border:0;border-radius:12px;padding:10px 12px;font-weight:700;cursor:pointer}
+    .btn:disabled{opacity:.4;cursor:not-allowed}
+    .btn2{background:transparent;color:#e8eefc;border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:10px 12px;font-weight:700;cursor:pointer}
+    .drop{border:1px dashed rgba(255,255,255,.22);border-radius:14px;padding:16px;text-align:center}
+    input[type="file"]{display:block;margin-top:10px}
+    textarea{width:100%;min-height:180px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:#0b1220;color:#e8eefc;padding:10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+    .small{opacity:.8;font-size:12px}
+    .ok{color:#86efac}
+    .warn{color:#fbbf24}
+    .bad{color:#fb7185}
+    code{background:rgba(255,255,255,.08);padding:2px 6px;border-radius:8px}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.15);font-size:12px;opacity:.9}
+  </style>
+</head>
+<body>
+<header>
+  <h1>🧩 SINET – Catalog Converter <span class="pill">Old → STL</span></h1>
+  <div class="small">Offline alat: učitaj stari katalog, konvertuj u novi standard, preuzmi novi JSON.</div>
+</header>
+
+<main>
+  <div class="card">
+    <div class="drop" id="dropZone">
+      <div><b>Prevuci i pusti</b> katalog ovde ili izaberi fajl 👇</div>
+      <input type="file" id="fileInput" accept="application/json,.json" />
+      <div class="small" id="fileInfo">Nije učitan fajl.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button class="btn" id="btnConvert" disabled>🔁 Convert to STL</button>
+      <button class="btn2" id="btnDownload" disabled>⬇️ Download STL JSON</button>
+      <button class="btn2" id="btnCopy" disabled>📋 Copy JSON</button>
+      <button class="btn2" id="btnClear">🧹 Clear</button>
+    </div>
+    <div class="small" style="margin-top:10px">
+      Status: <span id="status" class="warn">čekam katalog…</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div><b>Output (STL)</b></div>
+      <div class="small">Saveti: nakon konverzije proveri “Warnings” dole.</div>
+    </div>
+    <textarea id="out" placeholder="Ovde će se pojaviti STL JSON…"></textarea>
+  </div>
+
+  <div class="card">
+    <b>Warnings / Validation</b>
+    <div class="small" id="warnings">—</div>
+  </div>
+
+  <div class="card">
+    <b>Napomena o mapiranju</b>
+    <div class="small">
+      Ovaj konvertor radi “core” transformaciju i ostavlja mesta za kasnije punjenje (izvori, opisi, linkovi).
+      Ti kasnije možeš da dodaš drugi “enricher” alat koji dopunjava <code>izvor.url</code>, opise frekvencija, itd.
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  const fileInput = $("fileInput");
+  const dropZone  = $("dropZone");
+  const fileInfo  = $("fileInfo");
+  const statusEl  = $("status");
+  const outEl     = $("out");
+  const warnEl    = $("warnings");
+
+  const btnConvert = $("btnConvert");
+  const btnDownload= $("btnDownload");
+  const btnCopy    = $("btnCopy");
+  const btnClear   = $("btnClear");
+
+  let rawObj = null;
+  let stlObj = null;
+  let loadedFileName = "";
+
+  function setStatus(text, cls){
+    statusEl.className = cls || "warn";
+    statusEl.textContent = text;
+  }
+
+  function safeJsonParse(text){
+    try { return JSON.parse(text); } catch(e){ return null; }
+  }
+
+  function nowStamp(){
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2,"0");
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  }
+
+  // -----------------------------
+  // 1) DETECTION HELPERS
+  // -----------------------------
+  function detectOldShape(obj){
+    // Ovo je namerno fleksibilno: vraća “hint” da li liči na stari SINET katalog.
+    // Prilagodićemo kada vidimo tvoj veliki katalog.
+    const keys = obj && typeof obj === "object" ? Object.keys(obj) : [];
+    if(!keys.length) return { ok:false, reason:"Prazan objekat" };
+
+    // Heuristike:
+    // - ima "simptomi" ili "items" ili "catalog"
+    // - stavke sadrže naziv/ime i liste frekvencija
+    const hasSimptomi = Array.isArray(obj.simptomi);
+    const hasItems = Array.isArray(obj.items);
+    const hasCatalog = Array.isArray(obj.catalog);
+
+    const rootArr = hasSimptomi ? obj.simptomi : (hasItems ? obj.items : (hasCatalog ? obj.catalog : null));
+    if(!rootArr) return { ok:false, reason:"Ne vidim root listu (simptomi/items/catalog)." };
+
+    return { ok:true, rootKey: hasSimptomi ? "simptomi" : (hasItems ? "items" : "catalog"), count: rootArr.length };
+  }
+
+  // -----------------------------
+  // 2) NORMALIZERS (text, ids, etc.)
+  // -----------------------------
+  function slug(s){
+    return String(s||"")
+      .normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g,"-")
+      .replace(/^-+|-+$/g,"")
+      .slice(0,80);
+  }
+
+  function asText(x){
+    if(x==null) return "";
+    if(typeof x === "string") return x.trim();
+    return String(x).trim();
+  }
+
+  function asArray(x){
+    if(Array.isArray(x)) return x;
+    if(x==null) return [];
+    return [x];
+  }
+
+  // -----------------------------
+  // 3) CORE TRANSFORM: OLD → STL
+  // -----------------------------
+  // STL predlog (minimalno):
+  // {
+  //   meta: { schema:"SINET_STL", version:"1.0", generatedAt:"..." },
+  //   simptomi: [ { id, naziv, opis, mkb10, psihosomatika{uzrok,lek,izvor}, afirmacija{...}, molitva{...}, narodni_lek{...}, akupresura{...}, frekvencije:[...] } ]
+  // }
+  function convertOldToSTL(oldObj){
+    const det = detectOldShape(oldObj);
+    if(!det.ok) throw new Error(det.reason);
+
+    const srcArr = oldObj[det.rootKey];
+
+    const out = {
+      meta: {
+        schema: "SINET_STL",
+        version: "1.0",
+        generatedAt: new Date().toISOString(),
+        sourceFile: loadedFileName || "",
+        notes: "Generated by SINET Catalog Converter (Old → STL)"
+      },
+      simptomi: []
+    };
+
+    const warnings = [];
+
+    for(let idx=0; idx<srcArr.length; idx++){
+      const s = srcArr[idx] || {};
+
+      // Fleksibilno čitanje polja iz “starog” formata:
+      const naziv = asText(s.naziv || s.ime || s.title || s.name || `Simptom ${idx+1}`);
+      const opis  = asText(s.opis || s.desc || s.description || "");
+      const id    = asText(s.id) || slug(naziv) || `simptom-${idx+1}`;
+
+      // MKB: očekujemo sifru i opis (ako nema opis, ostavi prazno – kasnije enrich)
+      const mkbCode = asText((s.mkb10 && (s.mkb10.sifra || s.mkb10.code)) || s.mkb || s.icd10 || "");
+      const mkbName = asText((s.mkb10 && (s.mkb10.naziv || s.mkb10.name)) || s.mkb_opis || "");
+
+      // PSIHO → psihosomatika uzrok/lek
+      // stari format često ima PSIHO/MOLITVA/LEK kao blokove teksta
+      const psihoText = asText(s.PSIHO || s.psiho || (s.psihosomatika && (s.psihosomatika.uzrok || s.psihosomatika.text)) || "");
+      const psihoUzrok = asText((s.psihosomatika && s.psihosomatika.uzrok) || psihoText);
+      const psihoLek   = asText((s.psihosomatika && (s.psihosomatika.lek || s.psihosomatika.rjesenje)) || "");
+
+      // MOLITVA odvojeno od afirmacije
+      const molitvaText = asText(s.MOLITVA || s.molitva || "");
+      const afirmText   = asText((s.afirmacija && (s.afirmacija.tekst || s.afirmacija.text)) || "");
+
+      // LEK → narodni_lek
+      const lekText = asText(s.LEK || s.lek || s.narodni_lek || "");
+
+      // Akupresura — već imaš format; prihvatamo i starije varijante
+      const ak = s.akupresura || s.acupressure || null;
+      const akupresura = ak ? {
+        tacka: asText(ak.tacka || ak.point || ""),
+        naziv: asText(ak.naziv || ak.name || ""),
+        lokacija: asText(ak.lokacija || ak.location || ""),
+        uputstvo: asText(ak.uputstvo || ak.instructions || ""),
+        slike: Array.isArray(ak.slike) ? ak.slike : []
+      } : null;
+
+      // Frekvencije: podržimo više starih mogućnosti
+      const freqsRaw = s.frekvencije || s.frequencies || s.freqs || [];
+      const freqsArr = asArray(freqsRaw).map((f, j) => {
+        if(typeof f === "number" || typeof f === "string"){
+          return {
+            hz: Number(f),
+            naziv: "",
+            opis: "",
+            izvor: { url:"", autor:"", delo:"", licenca:"" }
+          };
+        }
+        const hz = Number(f.hz || f.freq || f.frequency || f.value || 0);
+        return {
+          hz: hz,
+          naziv: asText(f.naziv || f.name || ""),
+          opis: asText(f.opis || f.desc || ""),
+          izvor: {
+            url: asText((f.izvor && f.izvor.url) || f.source || ""),
+            autor: asText((f.izvor && f.izvor.autor) || ""),
+            delo: asText((f.izvor && f.izvor.delo) || ""),
+            licenca: asText((f.izvor && f.izvor.licenca) || "")
+          }
+        };
+      });
+
+      if(!freqsArr.length){
+        warnings.push(`⚠️ [${id}] nema frekvencija (prazno).`);
+      }
+
+      // Validacije koje su bitne za “poverenje”:
+      if(mkbCode && !mkbName){
+        warnings.push(`⚠️ [${id}] ima MKB šifru (${mkbCode}) ali nema naziv/opis (kasnije obavezno dopuniti).`);
+      }
+
+      // STL simptom objekat:
+      const symptomSTL = {
+        id,
+        naziv,
+        opis,
+        mkb10: {
+          sifra: mkbCode,
+          naziv: mkbName,
+          izvor: { sistem: "ICD-10 / MKB-10", url: "" }
+        },
+        psihosomatika: {
+          uzrok: psihoUzrok,
+          lek: psihoLek,
+          izvor: { autor:"", delo:"", url:"" }
+        },
+        afirmacija: {
+          tekst: afirmText,
+          izvor: { autor:"", delo:"", napomena:"", url:"" }
+        },
+        molitva: {
+          tekst: molitvaText,
+          izvor: { tradicija:"", url:"" }
+        },
+        narodni_lek: {
+          tekst: lekText,
+          napomena: "",
+          izvor: { url:"", autor:"", delo:"" }
+        },
+        akupresura: akupresura,
+        frekvencije: freqsArr
+      };
+
+      // Preimenovanja (UI-friendly terminologija):
+      // PSIHO label u UI neće više postojati, već psihosomatika.
+      // LEK label u UI će biti Narodni lek.
+      // MOLITVA + Afirmacija odvojeno.
+
+      out.simptomi.push(symptomSTL);
+    }
+
+    return { stl: out, warnings };
+  }
+
+  // -----------------------------
+  // 4) IO / UI
+  // -----------------------------
+  function loadFile(file){
+    if(!file) return;
+    loadedFileName = file.name || "";
+    fileInfo.textContent = `Učitano: ${loadedFileName} (${Math.round(file.size/1024)} KB)`;
+    setStatus("učitavam…", "warn");
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const txt = String(reader.result || "");
+      const obj = safeJsonParse(txt);
+      if(!obj){
+        rawObj = null;
+        setStatus("Neispravan JSON (parse error).", "bad");
+        btnConvert.disabled = true;
+        return;
+      }
+      rawObj = obj;
+      const det = detectOldShape(obj);
+      if(!det.ok){
+        setStatus("JSON učitan, ali format nije prepoznat: " + det.reason, "bad");
+        btnConvert.disabled = false; // ipak dozvoli pokušaj (nekad heuristika omane)
+      } else {
+        setStatus(`JSON učitan. Prepoznato: root="${det.rootKey}", stavki=${det.count}.`, "ok");
+        btnConvert.disabled = false;
+      }
+      btnDownload.disabled = true;
+      btnCopy.disabled = true;
+      outEl.value = "";
+      warnEl.textContent = "—";
+    };
+    reader.readAsText(file);
+  }
+
+  function downloadJson(obj, filename){
+    const blob = new Blob([JSON.stringify(obj, null, 2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 250);
+  }
+
+  // Drag & drop
+  dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.style.opacity = 0.9; });
+  dropZone.addEventListener("dragleave", () => { dropZone.style.opacity = 1; });
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropZone.style.opacity = 1;
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    loadFile(file);
+  });
+
+  fileInput.addEventListener("change", () => loadFile(fileInput.files && fileInput.files[0]));
+
+  btnConvert.addEventListener("click", () => {
+    if(!rawObj){
+      setStatus("Nema učitanog kataloga.", "bad");
+      return;
+    }
+    try{
+      setStatus("Konvertujem…", "warn");
+      const { stl, warnings } = convertOldToSTL(rawObj);
+      stlObj = stl;
+
+      outEl.value = JSON.stringify(stlObj, null, 2);
+      btnDownload.disabled = false;
+      btnCopy.disabled = false;
+
+      if(warnings.length){
+        warnEl.innerHTML = warnings.map(w => `<div>${w}</div>`).join("");
+        setStatus(`Konverzija OK, ali ima upozorenja: ${warnings.length}.`, "warn");
+      } else {
+        warnEl.textContent = "✅ Nema upozorenja.";
+        setStatus("Konverzija OK ✅", "ok");
+      }
+    } catch(err){
+      stlObj = null;
+      outEl.value = "";
+      btnDownload.disabled = true;
+      btnCopy.disabled = true;
+      warnEl.textContent = "—";
+      setStatus("Greška konverzije: " + (err && err.message ? err.message : String(err)), "bad");
+    }
+  });
+
+  btnDownload.addEventListener("click", () => {
+    if(!stlObj) return;
+    const base = loadedFileName ? loadedFileName.replace(/\.json$/i,"") : "catalog";
+    const fn = `${base}_STL_${nowStamp()}.json`;
+    downloadJson(stlObj, fn);
+    setStatus("Preuzet STL JSON ✅", "ok");
+  });
+
+  btnCopy.addEventListener("click", async () => {
+    if(!stlObj) return;
+    try{
+      await navigator.clipboard.writeText(JSON.stringify(stlObj, null, 2));
+      setStatus("Kopirano u clipboard ✅", "ok");
+    } catch(e){
+      setStatus("Clipboard nije dostupan u ovom browser-u. Koristi Download.", "warn");
+    }
+  });
+
+  btnClear.addEventListener("click", () => {
+    rawObj = null; stlObj = null; loadedFileName = "";
+    fileInput.value = "";
+    fileInfo.textContent = "Nije učitan fajl.";
+    outEl.value = "";
+    warnEl.textContent = "—";
+    btnConvert.disabled = true;
+    btnDownload.disabled = true;
+    btnCopy.disabled = true;
+    setStatus("čekam katalog…", "warn");
+  });
+})();
+</script>
+</body>
+</html>

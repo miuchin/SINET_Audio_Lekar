@@ -2,74 +2,75 @@
     ====== SINET PROJECT INFO ======
     Project: SINET Audio Lekar
     File: js/catalog/catalog-loader.js
-    Version: 1.0
+    Version: 1.1
     Author: miuchins | Co-author: SINET AI
-    Description: Handles fetching and parsing of the SINET JSON Catalog.
+    Description: Fetch + normalize + search utilities for SINET_CATALOG.json
 */
 
 export class CatalogLoader {
-    constructor(url = 'data/SINET_CATALOG.json') {
-        this.url = url;
-        this.data = null;
-        this.items = [];
-        this.isLoaded = false;
+  constructor(url = "data/SINET_CATALOG.json") {
+    this.url = url;
+    this.data = null;
+    this.items = [];
+    this.isLoaded = false;
+    this.error = null;
+  }
+
+  async load() {
+    try {
+      const response = await fetch(this.url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP greška! Status: ${response.status}`);
+      const json = await response.json();
+      const normalized = normalizeCatalog(json);
+
+      this.data = normalized.raw;
+      this.items = normalized.items;
+      this.isLoaded = true;
+      this.error = null;
+
+      console.log(`CatalogLoader: Učitano ${this.items.length} stavki.`);
+      return this.items;
+    } catch (err) {
+      console.error("CatalogLoader Error:", err);
+      this.isLoaded = false;
+      this.error = err?.message || String(err);
+      this.data = null;
+      this.items = [];
+      return [];
     }
+  }
 
-    async load() {
-        try {
-            console.log(`CatalogLoader: Fetching ${this.url}...`);
-            const response = await fetch(this.url);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP greška! Status: ${response.status}`);
-            }
+  getItemById(id) { return this.items.find((item) => item.id === id); }
+  getItemByUid(uid) {
+    const u = Number(uid);
+    return this.items.find((item) => Number(item.uid) === u);
+  }
 
-            const json = await response.json();
-            
-            // Validacija strukture prema SINET standardu (Primer_Kataloga.json)
-            if (!json.items || !Array.isArray(json.items)) {
-                throw new Error("Neispravan format kataloga: Nedostaje 'items' niz.");
-            }
+  search(query) {
+    const lowerQ = String(query || "").trim().toLowerCase();
+    if (!lowerQ) return this.items;
+    return this.items.filter((item) => {
+      const simptom = (item.simptom || "").toLowerCase();
+      const oblast = (item.oblast || "").toLowerCase();
+      const tags = Array.isArray(item.tags) ? item.tags.join(" ").toLowerCase() : "";
+      const mkb = (item.mkb10 || "").toLowerCase();
+      return simptom.includes(lowerQ) || oblast.includes(lowerQ) || tags.includes(lowerQ) || mkb.includes(lowerQ);
+    });
+  }
+}
 
-            this.data = json;
-            this.items = json.items; // Glavni niz simptoma
-            this.isLoaded = true;
-            
-            console.log(`CatalogLoader: Uspešno učitano ${this.items.length} stavki.`);
-            return this.items;
+export async function loadCatalog(url = "data/SINET_CATALOG.json") {
+  const loader = new CatalogLoader(url);
+  const items = await loader.load();
+  return { meta: loader.data?.meta || null, items, raw: loader.data };
+}
 
-        } catch (error) {
-            console.error("CatalogLoader Error:", error);
-            // Vraćamo prazan niz da ne srušimo aplikaciju, ali logujemo grešku
-            return [];
-        }
-    }
-
-    /**
-     * Pronalazi stavku po ID-u
-     */
-    getItemById(id) {
-        return this.items.find(item => item.id === id);
-    }
-
-    /**
-     * Vraća stavke koje sadrže određeni tag ili tekst (za Pretragu)
-     */
-    search(query) {
-        const lowerQ = query.toLowerCase();
-        return this.items.filter(item => 
-            (item.simptom && item.simptom.toLowerCase().includes(lowerQ)) ||
-            (item.tags && item.tags.some(t => t.toLowerCase().includes(lowerQ)))
-        );
-    }
-
-    /**
-     * Vraća presete za početnu stranu na osnovu tagova ili oblasti
-     * Primer: getPresets('Varenje')
-     */
-    getPresetsByCategory(category) {
-        return this.items.filter(item => 
-            item.oblast && item.oblast.toLowerCase() === category.toLowerCase()
-        );
-    }
+export function normalizeCatalog(json) {
+  if (Array.isArray(json)) return { raw: { meta: null, items: json }, items: json };
+  const items =
+    (json && Array.isArray(json.items) && json.items) ||
+    (json && Array.isArray(json.entries) && json.entries) ||
+    [];
+  const raw = json || { meta: null, items };
+  return { raw, items };
 }

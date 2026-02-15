@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SINET_NUTRI_STL_v1.0",
+  "type": "object",
+  "required": [
+    "meta",
+    "foods",
+    "vitamins",
+    "minerals",
+    "compatibility"
+  ],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": [
+        "schema",
+        "version"
+      ],
+      "properties": {
+        "schema": {
+          "const": "SINET_NUTRI_STL_v1.0"
+        },
+        "version": {
+          "type": "string"
+        },
+        "generatedAt": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "coauthor": {
+          "type": "string"
+        },
+        "cursor": {
+          "type": "object",
+          "properties": {
+            "batch_size": {
+              "type": "integer"
+            },
+            "next_cursor": {}
+          }
+        }
+      }
+    },
+    "foods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "object",
+            "properties": {
+              "sr": {
+                "type": "string"
+              },
+              "en": {
+                "type": "string"
+              }
+            }
+          },
+          "group": {
+            "type": "string"
+          },
+          "per_100g": {
+            "type": "object"
+          },
+          "gi": {},
+          "indicators": {
+            "type": "object",
+            "properties": {
+              "color": {
+                "enum": [
+                  "green",
+                  "orange",
+                  "red"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "vitamins": {
+      "type": "array"
+    },
+    "minerals": {
+      "type": "array"
+    },
+    "compatibility": {
+      "type": "object"
+    }
+  }
+}

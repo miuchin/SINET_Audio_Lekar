@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="sr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>SINET Admin Tools</title>
+  <link rel="stylesheet" href="css/main.css"/>
+  <style>
+    .wrap{max-width:1100px;margin:0 auto;padding:16px;}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;}
+    .card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:14px;}
+    .card h3{margin:0 0 8px 0;font-size:18px;}
+    .btnrow{display:flex;gap:10px;flex-wrap:wrap}
+    .btnrow a,.btnrow button{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:10px;border:0;cursor:pointer;text-decoration:none}
+    .btnrow a{background:#2b74ff;color:#fff}
+    .btnrow button{background:#25a05a;color:#fff}
+    .muted{opacity:.85;font-size:13px;line-height:1.35}
+    .log{white-space:pre-wrap;background:rgba(0,0,0,.3);padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);min-height:72px}
+    input[type=file]{width:100%;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 style="margin:4px 0 10px 0;">🛠️ SINET Admin Tools</h1>
+    <p class="muted">
+      Preporuka: pokreni preko lokalnog servera (npr. <code>python -m http.server 8000</code>) da bi sve radilo offline i bez CORS problema.
+    </p>
+
+    <div class="grid">
+      <div class="card">
+        <h3>🎧 Audio Lekar (app)</h3>
+        <p class="muted">Glavna aplikacija (player, katalog, lista, favoriti).</p>
+        <div class="btnrow">
+          <a href="index.html">Otvori aplikaciju</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🔎 Inspector</h3>
+        <p class="muted">Audit kataloga (MKB-10, psihosomatika, molitva, prazna polja). Radi sa STL i runtime.</p>
+        <div class="btnrow">
+          <a href="sinet_inspector_v15.html">Otvori Inspector</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🔁 Converter</h3>
+        <p class="muted">Konverzija između formata (STL ↔ runtime), eksport i validacija.</p>
+        <div class="btnrow">
+          <a href="sinet-catalog-converter.html">Otvori Converter</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🧹 DeDuplikator</h3>
+        <p class="muted">Detekcija duplih simptoma + checklist (zadrži/obriši/merge) i generisanje čistog STL fajla.</p>
+        <div class="btnrow">
+          <a href="sinet-deduplicator.html">Otvori DeDuplikator</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🧬 Generate Runtime iz STL</h3>
+        <p class="muted">Pravi <code>SINET_CATALOG.runtime.json</code> iz kanonskog <code>SINET_STL.json</code> (za kompatibilnost i eksterni alat).</p>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0;">
+          <button id="btnBuildFromData">Koristi data/SINET_STL.json</button>
+          <span class="muted">ili učitaj STL:</span>
+          <input id="fileSTL" type="file" accept=".json"/>
+        </div>
+
+        <div class="btnrow">
+          <button id="btnBuild">Generiši runtime JSON</button>
+        </div>
+
+        <div style="margin-top:10px" class="log" id="log">Spremno.</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { stlToRuntimeItems, isSTLCatalog } from './js/catalog/stl-adapter.js';
+
+    const $ = (id)=>document.getElementById(id);
+
+    function downloadJson(filename, obj){
+      const blob = new Blob([JSON.stringify(obj,null,2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 500);
+    }
+
+    function log(msg){
+      $('log').textContent = msg;
+      console.log(msg);
+    }
+
+    let stlPayload = null;
+
+    async function loadFromData(){
+      const res = await fetch('./data/SINET_STL.json', {cache:'no-store'});
+      if(!res.ok) throw new Error('Ne mogu da učitam data/SINET_STL.json ('+res.status+')');
+      const j = await res.json();
+      if(!isSTLCatalog(j)) throw new Error('data/SINET_STL.json nije STL format (očekujem {meta, simptomi[]}).');
+      stlPayload = j;
+      log('Učitano: data/SINET_STL.json • simptomi: '+j.simptomi.length);
+    }
+
+    $('btnBuildFromData').addEventListener('click', async ()=>{
+      try{ await loadFromData(); } catch(e){ log('GREŠKA: '+e.message); }
+    });
+
+    $('fileSTL').addEventListener('change', async (ev)=>{
+      const f = ev.target.files && ev.target.files[0];
+      if(!f) return;
+      try{
+        const txt = await f.text();
+        const j = JSON.parse(txt);
+        if(!isSTLCatalog(j)) throw new Error('Fajl nije STL format (očekujem {meta, simptomi[]}).');
+        stlPayload = j;
+        log('Učitano: '+f.name+' • simptomi: '+j.simptomi.length);
+      }catch(e){
+        log('GREŠKA: '+e.message);
+      }
+    });
+
+    $('btnBuild').addEventListener('click', async ()=>{
+      try{
+        if(!stlPayload) await loadFromData();
+        const items = stlToRuntimeItems(stlPayload);
+        const out = {
+          meta: {
+            generatedFrom: 'SINET_STL',
+            ts: new Date().toISOString(),
+            stlVersion: stlPayload?.meta?.stlVersion || '1.1',
+            itemsCount: items.length
+          },
+          items
+        };
+        downloadJson('SINET_CATALOG.runtime.json', out);
+        log('OK: generisan runtime JSON • items: '+items.length);
+      }catch(e){
+        log('GREŠKA: '+e.message);
+      }
+    });
+  </script>
+</body>
+</html>

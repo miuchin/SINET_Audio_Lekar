@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sinet.rs/schema/SINET_STL_v1.1.schema.json",
+  "title": "SINET STL v1.1 (Symptom Catalog)",
+  "type": "object",
+  "required": ["meta", "simptomi"],
+  "additionalProperties": false,
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["schema", "version", "generatedAt"],
+      "additionalProperties": true,
+      "properties": {
+        "schema": { "type": "string", "const": "SINET_STL" },
+        "version": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+){1,2}$" },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "sourceFile": { "type": "string" },
+        "notes": { "type": "string" },
+        "audit": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/auditEntry" },
+          "default": []
+        }
+      }
+    },
+    "simptomi": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/simptom" }
+    }
+  },
+  "$defs": {
+    "auditEntry": {
+      "type": "object",
+      "required": ["ts", "tool", "toolVersion", "mode"],
+      "additionalProperties": true,
+      "properties": {
+        "ts": { "type": "string", "format": "date-time" },
+        "tool": { "type": "string" },
+        "toolVersion": { "type": "string" },
+        "mode": { "type": "string", "enum": ["enrich", "merge", "validate", "manual"] },
+        "providers": { "type": "array", "items": { "type": "string" }, "default": [] },
+        "inputFile": { "type": "string" },
+        "outputFile": { "type": "string" },
+        "summary": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "simptomi": { "type": "integer", "minimum": 0 },
+            "freqTotal": { "type": "integer", "minimum": 0 },
+            "fieldsFilled": { "type": "integer", "minimum": 0 },
+            "warnings": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "simptom": {
+      "type": "object",
+      "required": ["id", "naziv", "opis", "mkb10", "frekvencije"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "uid": {
+          "description": "Optional persistent UID. Can be added later.",
+          "type": ["integer", "string", "null"]
+        },
+        "naziv": { "type": "string", "minLength": 1 },
+        "opis": { "type": "string" },
+        "mkb10": { "$ref": "#/$defs/mkb10" },
+
+        "psihosomatika": { "$ref": "#/$defs/psihosomatika" },
+        "afirmacija": { "$ref": "#/$defs/afirmacija" },
+        "molitva": { "$ref": "#/$defs/molitva" },
+        "narodni_lek": { "$ref": "#/$defs/narodniLek" },
+
+        "akupresura": {
+          "description": "Single point or list of points; can be null until added.",
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/akupresura" },
+            { "type": "array", "items": { "$ref": "#/$defs/akupresura" }, "minItems": 1 }
+          ]
+        },
+
+        "frekvencije": {
+          "type": "array",
+          "minItems": 0,
+          "items": { "$ref": "#/$defs/frekvencija" }
+        },
+
+        "extensions": {
+          "description": "Future-proof freeform extra data.",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        }
+      }
+    },
+
+    "mkb10": {
+      "description": "MKB-10 block. Supports legacy keys (sifra/naziv) and newer keys (code/opis).",
+      "anyOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["sifra", "naziv"],
+          "additionalProperties": true,
+          "properties": {
+            "sifra": { "type": "string" },
+            "naziv": { "type": "string" },
+            "izvor": { "$ref": "#/$defs/izvor" },
+            "code": { "type": "string" },
+            "opis": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["code", "opis"],
+          "additionalProperties": true,
+          "properties": {
+            "code": { "type": "string" },
+            "opis": { "type": "string" },
+            "izvor": { "$ref": "#/$defs/izvor" },
+            "sifra": { "type": "string" },
+            "naziv": { "type": "string" }
+          }
+        }
+      ]
+    },
+
+    "psihosomatika": {
+      "type": "object",
+      "required": ["uzrok", "lek"],
+      "additionalProperties": true,
+      "properties": {
+        "uzrok": { "type": "string" },
+        "lek": { "type": "string" }
+      }
+    },
+
+    "afirmacija": {
+      "type": "object",
+      "required": ["tekst"],
+      "additionalProperties": true,
+      "properties": {
+        "tekst": { "type": "string" },
+        "autor": { "type": "string" },
+        "izvor": { "type": "string" }
+      }
+    },
+
+    "molitva": {
+      "type": "object",
+      "required": ["tekst"],
+      "additionalProperties": true,
+      "properties": {
+        "tekst": { "type": "string" },
+        "izvor": { "type": "string" }
+      }
+    },
+
+    "narodniLek": {
+      "type": "object",
+      "required": ["opis"],
+      "additionalProperties": true,
+      "properties": {
+        "opis": { "type": "string" }
+      }
+    },
+
+    "akupresura": {
+      "type": "object",
+      "required": ["tacka", "naziv", "lokacija", "uputstvo"],
+      "additionalProperties": true,
+      "properties": {
+        "tacka": { "type": "string" },
+        "naziv": { "type": "string" },
+        "lokacija": { "type": "string" },
+        "uputstvo": { "type": "string" },
+        "slika": { "type": "string" },
+        "marker": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "x": { "type": "number", "minimum": 0, "maximum": 1 },
+            "y": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "izvor": { "type": "string" }
+      }
+    },
+
+    "frekvencija": {
+      "type": "object",
+      "required": ["hz"],
+      "additionalProperties": true,
+      "properties": {
+        "hz": { "type": "number", "exclusiveMinimum": 0 },
+        "naziv": { "type": "string" },
+        "opis": { "type": "string" },
+        "funkcija": { "type": "string" },
+        "izvor": { "$ref": "#/$defs/izvor" },
+        "enabled": { "type": "boolean" }
+      }
+    },
+
+    "izvor": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "sistem": { "type": "string" },
+        "url": { "type": "string" },
+        "autor": { "type": "string" },
+        "delo": { "type": "string" },
+        "licenca": { "type": "string" }
+      }
+    }
+  }
+}

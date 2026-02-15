@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SINET_NUTRI_NOTES_v1.0",
+  "type": "object",
+  "required": [
+    "meta",
+    "notes"
+  ],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": [
+        "schema",
+        "createdAt"
+      ],
+      "properties": {
+        "schema": {
+          "const": "SINET_NUTRI_NOTES_v1.0"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "batch": {
+          "type": "object"
+        }
+      }
+    },
+    "notes": {
+      "type": "array"
+    }
+  }
+}

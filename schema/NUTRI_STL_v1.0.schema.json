@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SINET_NUTRI_STL_v1.0",
+  "type": "object",
+  "required": [
+    "meta",
+    "foods",
+    "vitamins",
+    "minerals",
+    "compatibility"
+  ],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": [
+        "schema",
+        "generatedAt"
+      ],
+      "properties": {
+        "schema": {
+          "const": "SINET_NUTRI_STL_v1.0"
+        },
+        "generatedAt": {
+          "type": "string"
+        },
+        "cursor": {
+          "type": "object",
+          "properties": {
+            "batch_size": {
+              "type": "integer"
+            },
+            "offset": {
+              "type": "integer"
+            },
+            "next_cursor": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "foods": {
+      "type": "array"
+    },
+    "vitamins": {
+      "type": "array"
+    },
+    "minerals": {
+      "type": "array"
+    },
+    "compatibility": {
+      "type": "object"
+    }
+  }
+}
