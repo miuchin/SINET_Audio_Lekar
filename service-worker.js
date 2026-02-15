@@ -1,52 +1,93 @@
 /*
-    ====== SINET PROJECT INFO ======
-    File: service-worker.js
-    Description: Enables Offline Mode & PWA capabilities
+    SINET Audio Lekar — Service Worker
+    Offline Mode & PWA
     Author: miuchins & SINET AI
 */
 
-const CACHE_NAME = 'sinet-audio-v2';
+const CACHE_NAME = 'sinet-audio-v15.4.8.1';
+
 const ASSETS_TO_CACHE = [
-    './',
-    './index.html',
-    './css/main.css',
-    './js/app.js',
-    './js/audio/audio-engine.js',
-    './js/catalog/catalog-loader.js',
-    './js/db/indexed-db.js',
-    './data/SINET_CATALOG.json'
+  './',
+  './index.html',
+  './admin.html',
+  './sinet-nutri-studio_v1.html',
+  './sinet_inspector_v15.html',
+  './sinet-catalog-converter.html',
+  './sinet-deduplicator.html',
+  './css/main.css',
+
+  // JS (cache-bust matches index.html)
+  './js/db/indexed-db.js?v=15.4',
+  './js/app.js?v=15.4.8.0',
+  './js/audio/audio-engine.js?v=15.4.8.0',
+  './js/catalog/stl-adapter.js?v=15.4.8.0',
+
+  // Module imports (may be requested without query)
+  './js/app.js',
+  './js/catalog/stl-adapter.js',
+  './js/audio/audio-engine.js',
+  './js/db/indexed-db.js',
+
+  // Data
+  './data/SINET_CATALOG.json',
+  './data/SINET_STL.json',
+  './data/presets/senior_presets.json',
+  './data/media/acupressure/registry.json',
+
+  './manifest.json',
 ];
 
-// 1. INSTALL: Keširanje fajlova
 self.addEventListener('install', (event) => {
-    console.log('[SINET PWA] Installing Service Worker...');
-    event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            console.log('[SINET PWA] Caching App Shell');
-            return cache.addAll(ASSETS_TO_CACHE);
-        })
-    );
+  self.skipWaiting();
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
+  );
 });
 
-// 2. ACTIVATE: Brisanje starog keša
 self.addEventListener('activate', (event) => {
-    event.waitUntil(
-        caches.keys().then((keyList) => {
-            return Promise.all(keyList.map((key) => {
-                if (key !== CACHE_NAME) {
-                    console.log('[SINET PWA] Removing old cache', key);
-                    return caches.delete(key);
-                }
-            }));
-        })
-    );
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => (k !== CACHE_NAME ? caches.delete(k) : Promise.resolve())));
+    await self.clients.claim();
+  })());
 });
 
-// 3. FETCH: Serviranje iz keša (Offline First)
+// Network-first for critical (JS/CSS/JSON/HTML) to avoid being stuck on old versions.
 self.addEventListener('fetch', (event) => {
-    event.respondWith(
-        caches.match(event.request).then((response) => {
-            return response || fetch(event.request);
-        })
-    );
+  const req = event.request;
+  const url = new URL(req.url);
+
+  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+
+  const path = url.pathname || '';
+  const isCritical =
+    path.endsWith('.js') ||
+    path.endsWith('.css') ||
+    path.endsWith('.json') ||
+    path.endsWith('index.html');
+
+  if (isCritical) {
+    event.respondWith((async () => {
+      try {
+        const fresh = await fetch(req);
+        const cache = await caches.open(CACHE_NAME);
+        cache.put(req, fresh.clone());
+        return fresh;
+      } catch (e) {
+        const cached = await caches.match(req);
+        return cached || caches.match('./index.html');
+      }
+    })());
+    return;
+  }
+
+  // Cache-first for non-critical
+  event.respondWith((async () => {
+    const cached = await caches.match(req);
+    if (cached) return cached;
+    const fresh = await fetch(req);
+    const cache = await caches.open(CACHE_NAME);
+    cache.put(req, fresh.clone());
+    return fresh;
+  })());
 });

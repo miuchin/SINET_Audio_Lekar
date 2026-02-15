@@ -1,0 +1,1002 @@
+<!doctype html>
+<!--
+  ====== SINET PROJECT INFO ======
+  Project: SINET Admin Tools — NUTRI Studio
+  File: sinet-nutri-studio_v1.html
+  Version: 1.1.0 (Default Plan: Batch engine + Prompt A/B/C + Notes merge)
+  Author: miuchins (Svetozar Miuchin)
+  Co-author: SINET AI (GPT Co-author / Engineering Partner)
+  Concept: SINET — Sinergija čoveka i AI za dobrobit svih
+
+  SOURCE OF TRUTH:
+    - data/NUTRI_STL.json  (KANON)
+    - data/NUTRI_STL_SEED_from_NutriTablePro_v2.json (SEED/demo)
+
+  NOTES PATCH:
+    - SINET_NUTRI_NOTES_v1.0 JSON (import/merge into canon)
+
+  ZERO-BREAK:
+    - No removal of features. Offline-first, no external CDNs.
+-->
+<html lang="sr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SINET — NUTRI Studio (KANON + Batch + Notes)</title>
+  <style>
+    :root{
+      --bg:#0b1220; --panel:#0f1930; --panel2:#0b1325;
+      --text:#e8eefc; --muted:rgba(232,238,252,.75);
+      --line:rgba(255,255,255,.10);
+      --ok:#5fd06b; --warn:#ffcc66; --bad:#f06a6a; --blue:#60a5fa;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif}
+    header{padding:16px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
+    h1{font-size:18px;margin:0}
+    .sub{opacity:.8;font-size:12px;margin-top:6px}
+    main{max-width:1180px;margin:0 auto;padding:18px}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    @media(min-width:1100px){ .grid{grid-template-columns:420px 1fr} }
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .btn{appearance:none;border:0;border-radius:12px;padding:10px 12px;font-weight:800;cursor:pointer}
+    .btn-ok{background:var(--ok);color:#04150a}
+    .btn-blue{background:var(--blue);color:#061427}
+    .btn-ghost{background:var(--panel2);border:1px solid var(--line);color:var(--text)}
+    .btn-bad{background:var(--bad);color:#2b0606}
+    .pill{display:inline-flex;align-items:center;gap:8px;padding:8px 10px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);font-size:12px}
+    .pill b{font-size:12px}
+    label{display:block;font-size:12px;color:var(--muted);margin:10px 0 6px}
+    input[type="file"], select, input[type="number"], input[type="text"]{
+      width:100%; padding:10px 10px;border-radius:12px;background:var(--panel2);
+      border:1px solid var(--line); color:var(--text); outline:none;
+    }
+    textarea{
+      width:100%; min-height:240px; padding:12px;border-radius:12px;background:var(--panel2);
+      border:1px solid var(--line); color:var(--text); outline:none;
+      font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;line-height:1.35;
+    }
+    .muted{color:var(--muted);font-size:12px}
+    .sep{height:1px;background:var(--line);margin:12px 0}
+    .badge{display:inline-block;padding:4px 8px;border-radius:999px;background:rgba(96,165,250,.15);border:1px solid rgba(96,165,250,.35);font-size:12px}
+    .box{white-space:pre-wrap;border-radius:12px;padding:10px;border:1px solid var(--line);background:var(--panel2);font-size:12px}
+    .box.ok{border-color:rgba(95,208,107,.35);background:rgba(95,208,107,.10)}
+    .box.warn{border-color:rgba(255,204,102,.35);background:rgba(255,204,102,.10)}
+    .box.bad{border-color:rgba(240,106,106,.35);background:rgba(240,106,106,.10)}
+    .small{font-size:11px}
+    code.inline{background:var(--panel2);border:1px solid var(--line);padding:2px 6px;border-radius:10px}
+    .list{max-height:320px;overflow:auto;border-radius:12px;border:1px solid var(--line);background:var(--panel2)}
+    .item{padding:10px;border-bottom:1px solid var(--line)}
+    .item:last-child{border-bottom:0}
+    .item b{display:block}
+    .k{opacity:.8;font-size:11px}
+  </style>
+</head>
+<body>
+<header>
+  <h1>🥗 SINET — NUTRI Studio <span class="badge">KANON + Batch + Notes</span></h1>
+  <div class="sub">Default plan: Batch 50/100/150 → Prompt A/B/C → Import NOTES patch → Merge → Export KANON.</div>
+</header>
+
+<main class="grid">
+  <!-- LEFT: Controls -->
+  <section class="card">
+    <div class="row">
+      <span class="pill">Kanon: <b id="canonName">NUTRI_STL.json</b></span>
+      <span class="pill">Foods: <b id="foodsCount">0</b></span>
+      <span class="pill">Vitamins: <b id="vitsCount">0</b></span>
+      <span class="pill">Minerals: <b id="minsCount">0</b></span>
+    </div>
+
+    <div class="sep"></div>
+
+    <label>1) Učitaj KANON (JSON)</label>
+    <div class="row">
+      <button class="btn btn-blue" onclick="loadDefaultCanon()">📂 Učitaj data/NUTRI_STL.json</button>
+      <button class="btn btn-ghost" onclick="loadDefaultSeed()">🌱 Učitaj SEED (JSON)</button>
+    </div>
+    <div class="muted small">Ako radiš preko <code class="inline">file:///</code> režima, fetch može biti blokiran — tada koristi import fajlom.</div>
+
+    <label>Import KANON JSON (fajl)</label>
+    <input type="file" id="canonFile" accept="application/json,.json" />
+    <div class="row" style="margin-top:8px">
+      <button class="btn btn-ok" onclick="importCanonFile()">📥 Import KANON</button>
+      <button class="btn btn-ghost" onclick="exportCanon()">⬇️ Export KANON</button>
+      <button class="btn btn-ghost" onclick="copyCanon()">📋 Copy KANON</button>
+    </div>
+
+    <div class="sep"></div>
+
+    <label>2) Uvoz SEED-a (NutriTable Pro v2 HTML)</label>
+    <input type="file" id="seedHtmlFile" accept="text/html,.html" />
+    <div class="row" style="margin-top:8px">
+      <button class="btn btn-ok" onclick="importSeedHtml()">🌱 Import SEED iz HTML</button>
+      <button class="btn btn-ghost" onclick="exportSeedAsCanon()">⬇️ Export SEED→KANON</button>
+    </div>
+    <div class="muted small">Ovo pravi kanonsku strukturu od demo baze: foods + vitamins + minerals + compatibility.</div>
+
+    <div class="sep"></div>
+
+    <label>2b) Import Batch Items (JSON) → Append stubs u KANON</label>
+    <input type="file" id="batchItemsFile" accept="application/json,.json" />
+    <div class="row" style="margin-top:8px">
+      <button class="btn btn-ok" onclick="importBatchItems()">➕ Import Batch Items</button>
+      <button class="btn btn-ghost" onclick="setOffsetToBatchB()">🎯 Set Offset = 60 (Batch B)</button>
+    </div>
+    <div class="muted small">Format: <code class="inline">SINET_NUTRI_BATCH_ITEMS</code> (items[] sa <code class="inline">id</code>/<code class="inline">name_sr</code>/<code class="inline">group</code>). Dodaje samo nove, postojeće preskače.</div>
+
+    <div class="sep"></div>
+
+    <label>3) Batch Engine</label>
+    <div class="row">
+      <div style="flex:1;min-width:150px">
+        <label style="margin-top:0">Batch size</label>
+        <select id="batchSize" onchange="setBatchSize()">
+          <option value="50">50</option>
+          <option value="100">100</option>
+          <option value="150">150</option>
+        </select>
+      </div>
+      <div style="flex:1;min-width:150px">
+        <label style="margin-top:0">Offset</label>
+        <input type="number" id="batchOffset" min="0" value="0" onchange="setBatchOffset()" />
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn btn-blue" onclick="buildBatch()">🧾 Prikaži Batch</button>
+      <button class="btn btn-ghost" onclick="nextBatch()">➡️ Next</button>
+      <button class="btn btn-ghost" onclick="prevBatch()">⬅️ Prev</button>
+    </div>
+    <div class="muted small">Batch uzima samo foods (namirnice) — vitamins/minerals se obogaćuju posebnim promptom (B).</div>
+
+    <div class="sep"></div>
+
+    <label>4) Prompt Generator (A/B/C)</label>
+    <div class="row">
+      <button class="btn btn-blue" onclick="generatePrompt('A')">🅰️ Prompt A (enrich_batch)</button>
+      <button class="btn btn-ghost" onclick="generatePrompt('B')">🅱️ Prompt B (verify/cite)</button>
+      <button class="btn btn-ghost" onclick="generatePrompt('C')">🅲 Prompt C (mealplan)</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn btn-ghost" onclick="copyPrompt()">📋 Copy Prompt</button>
+      <button class="btn btn-ghost" onclick="downloadNotesTemplate()">⬇️ Notes Template (ovaj batch)</button>
+    </div>
+
+    <div class="sep"></div>
+
+    <label>5) Import NOTES patch (JSON) → Merge u KANON</label>
+    <input type="file" id="notesFile" accept="application/json,.json" />
+    
+    <div class="row" style="margin-top:8px; align-items:center; gap:10px">
+      <label class="muted" style="display:flex; align-items:center; gap:8px; margin:0">
+        <input type="checkbox" id="autoCreateMissing" />
+        <b>Auto-create missing foods (STL write-back)</b>
+      </label>
+      <div class="muted small">Ako NOTES sadrži target ID koji ne postoji u kanonu, alat će napraviti stub i onda primeniti patch.</div>
+    </div>
+<div class="row" style="margin-top:8px">
+      <button class="btn btn-ok" onclick="importNotesAndMerge()">🔀 Import + Merge</button>
+      <button class="btn btn-bad" onclick="resetState()">🧹 Reset (memory only)</button>
+    </div>
+
+    <div class="sep"></div>
+
+    <div id="status" class="box ok">Spreman. Učitaj kanon ili seed.</div>
+  </section>
+
+  <!-- RIGHT: Output / Batch / Prompt -->
+  <section class="card">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <b>Batch / Prompt / Output</b>
+        <div class="muted">Default: Prompt A + Notes patch merge.</div>
+      </div>
+      <div class="pill">Cursor: <b id="cursorView">offset=0 size=50</b></div>
+    </div>
+
+    <label>Batch (foods) — trenutno selektovano</label>
+    <div id="batchList" class="list"></div>
+
+    <label style="margin-top:14px">Prompt</label>
+    <textarea id="promptBox" placeholder="Klikni Prompt A/B/C…"></textarea>
+
+    <label style="margin-top:14px">KANON JSON (preview / debug)</label>
+    <textarea id="canonBox" placeholder="Ovde je JSON kanona (preview)…"></textarea>
+
+    <div class="muted" style="margin-top:10px">
+      Pravilo: **ne izmišljati numeriku.** U NOTES patch-u uvek vraćaj i <code class="inline">sources[]</code>.
+    </div>
+  </section>
+</main>
+
+<script>
+/* =========================
+   SINET NUTRI STUDIO CORE
+   ========================= */
+
+let canon = null;          // current canonical object
+let seedCanon = null;      // last imported seed converted to canon
+let currentBatch = [];     // current foods slice
+let batchSize = 50;
+let batchOffset = 0;
+let lastPrompt = "";
+
+/* ---------- utils ---------- */
+function nowISO(){ return new Date().toISOString(); }
+function isObj(v){ return v && typeof v === "object" && !Array.isArray(v); }
+function asText(v){ if(v===null||v===undefined) return ""; return (typeof v==="string") ? v.trim() : String(v).trim(); }
+function slug(s){
+  return asText(s).toLowerCase()
+    .replace(/[đÐ]/g,"d").replace(/[čćČĆ]/g,"c").replace(/[šŠ]/g,"s").replace(/[žŽ]/g,"z")
+    .replace(/[^a-z0-9]+/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"");
+}
+function uniq(arr){
+  const out=[]; const seen=new Set();
+  (arr||[]).forEach(x=>{ const k=asText(x); if(!k) return; if(seen.has(k)) return; seen.add(k); out.push(k); });
+  return out;
+}
+function deepMerge(target, patch){
+  // objects: recursive, arrays: union unique strings if string[], else replace
+  if (!isObj(target) || !isObj(patch)) return patch;
+
+  const out = {...target};
+  for (const k of Object.keys(patch)){
+    const pv = patch[k];
+    const tv = out[k];
+
+    if (Array.isArray(pv)){
+      if (Array.isArray(tv)){
+        // if array of strings -> union
+        const allStr = pv.every(x=>typeof x==="string") && tv.every(x=>typeof x==="string");
+        out[k] = allStr ? uniq(tv.concat(pv)) : pv;
+      } else out[k] = pv;
+      continue;
+    }
+
+    if (isObj(pv) && isObj(tv)){
+      out[k] = deepMerge(tv, pv);
+      continue;
+    }
+
+    // primitives / null overwrite
+    out[k] = pv;
+  }
+  return out;
+}
+
+function setStatus(msg, kind="ok"){
+  const el=document.getElementById("status");
+  el.className = "box " + (kind==="bad"?"bad":kind==="warn"?"warn":"ok");
+  el.textContent = msg;
+}
+
+function refreshCounts(){
+  const foods = canon?.foods || [];
+  const vits = canon?.vitamins || [];
+  const mins = canon?.minerals || [];
+  document.getElementById("foodsCount").textContent = foods.length;
+  document.getElementById("vitsCount").textContent = vits.length;
+  document.getElementById("minsCount").textContent = mins.length;
+  document.getElementById("canonBox").value = canon ? JSON.stringify(canon, null, 2) : "";
+  document.getElementById("cursorView").textContent = `offset=${batchOffset} size=${batchSize}`;
+}
+
+function ensureCanonBase(obj){
+  const base = {
+    meta: {
+      schema: "SINET_NUTRI_STL_v1.0",
+      generatedAt: nowISO(),
+      cursor: { batch_size: batchSize, offset: batchOffset, next_cursor: null }
+    },
+    foods: [],
+    vitamins: [],
+    minerals: [],
+    compatibility: {
+      food_food: [],
+      vitamin_vitamin: [],
+      mineral_mineral: [],
+      nutrient_rules: []
+    }
+  };
+  if (!obj) return base;
+  // merge but keep schema
+  const merged = deepMerge(base, obj);
+  merged.meta = merged.meta || {};
+  merged.meta.schema = "SINET_NUTRI_STL_v1.0";
+  if (!merged.meta.cursor) merged.meta.cursor = { batch_size: batchSize, offset: batchOffset, next_cursor: null };
+  merged.meta.generatedAt = nowISO();
+  return merged;
+}
+
+function normalizeFoodId(id, fallbackName){
+  const t=asText(id);
+  if (t) return t;
+  return "food." + slug(fallbackName || ("item-" + Math.random().toString(16).slice(2)));
+}
+
+function foodTitle(food){
+  if (!food) return "";
+  const n = food.name;
+  if (isObj(n)) return asText(n.sr || n.en || "");
+  return asText(food.name || food.naziv || food.title || "");
+}
+
+function renderBatch(){
+  const box=document.getElementById("batchList");
+  box.innerHTML = "";
+  if (!canon){ box.innerHTML = `<div class="item"><b>Nema kanona.</b><div class="k">Učitaj NUTRI_STL.json ili seed.</div></div>`; return; }
+  if (!currentBatch.length){ box.innerHTML = `<div class="item"><b>Batch je prazan.</b><div class="k">Klikni “Prikaži Batch”.</div></div>`; return; }
+
+  currentBatch.forEach((f, i)=>{
+    const title = foodTitle(f) || "(bez imena)";
+    const group = asText(f.group || "");
+    const id = asText(f.id || "");
+    const needs = needsEnrichment(f);
+    const k = [];
+    if (needs.micros) k.push("micros");
+    if (needs.macros) k.push("macros");
+    if (needs.sources) k.push("sources");
+    if (needs.compat) k.push("compat");
+    if (needs.amino) k.push("amino");
+    const missing = k.length ? ("missing: " + k.join(", ")) : "OK";
+
+    const div = document.createElement("div");
+    div.className="item";
+    div.innerHTML = `<b>${(batchOffset+i+1)}. ${title}</b>
+      <div class="k">id: ${id} | grupa: ${group || "—"} | ${missing}</div>`;
+    box.appendChild(div);
+  });
+}
+
+function needsEnrichment(food){
+  // heuristics: seed has macros; micros typically missing; sources maybe seed only
+  const per = isObj(food.per_100g) ? food.per_100g : (isObj(food.per_100g_protein) ? food.per_100g_protein : {});
+  const macrosMissing = !isObj(food.per_100g) || (food.per_100g.fiber_g==null || food.per_100g.sugars_g==null);
+  const microsMissing = !(isObj(food.micros) && Object.keys(food.micros).length);
+  const sourcesMissing = !(Array.isArray(food.sources) && food.sources.length);
+  const compatMissing = !(isObj(food.compatibility) && isObj(food.compatibility.foods) && (food.compatibility.foods.friends||[]).length);
+  const aminoMissing = !(isObj(food.amino_per_100g_protein) && isObj(food.amino_per_100g_protein.values) && Object.keys(food.amino_per_100g_protein.values).length);
+  return { macros: macrosMissing, micros: microsMissing, sources: sourcesMissing, compat: compatMissing, amino: aminoMissing };
+}
+
+/* ---------- load defaults ---------- */
+async function loadDefaultCanon(){
+  try{
+    const res = await fetch("./data/NUTRI_STL.json?fresh=" + Date.now(), {cache:"no-store"});
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    const obj = await res.json();
+    canon = ensureCanonBase(obj);
+    setStatus("✅ Učitan kanon iz data/NUTRI_STL.json", "ok");
+    buildBatch();
+  }catch(e){
+    setStatus("⚠️ Ne mogu da učitam data/NUTRI_STL.json. Pokreni preko http.server ili koristi Import fajlom.\n" + e, "warn");
+  }
+  refreshCounts();
+}
+
+async function loadDefaultSeed(){
+  try{
+    const res = await fetch("./data/NUTRI_STL_SEED_from_NutriTablePro_v2.json?fresh=" + Date.now(), {cache:"no-store"});
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    const obj = await res.json();
+    seedCanon = ensureCanonBase(obj);
+    canon = seedCanon;
+    setStatus("✅ Učitan SEED (JSON) i postavljen kao aktivan kanon (staging). Exportuj kao NUTRI_STL.json.", "ok");
+    buildBatch();
+  }catch(e){
+    setStatus("⚠️ Ne mogu da učitam seed JSON. Koristi Import SEED HTML ili import fajlom.\n" + e, "warn");
+  }
+  refreshCounts();
+}
+
+/* ---------- import canon ---------- */
+async function importCanonFile(){
+  const f=document.getElementById("canonFile").files?.[0];
+  if(!f){ setStatus("Izaberi KANON JSON fajl.", "warn"); return; }
+  try{
+    const txt = await f.text();
+    const obj = JSON.parse(txt);
+    canon = ensureCanonBase(obj);
+    setStatus(`✅ Importovan KANON: ${f.name}`, "ok");
+    buildBatch();
+  }catch(e){
+    setStatus("❌ Ne mogu da importujem KANON JSON.\n" + e, "bad");
+  }
+  refreshCounts();
+}
+
+/* ---------- seed HTML parse ---------- */
+async function importSeedHtml(){
+  const f=document.getElementById("seedHtmlFile").files?.[0];
+  if(!f){ setStatus("Izaberi NutriTable Pro HTML fajl.", "warn"); return; }
+  try{
+    const html = await f.text();
+
+    const foods = extractJSArray(html, "foods");
+    const vits  = extractJSArray(html, "vitamins");
+    const mins  = extractJSArray(html, "minerals");
+
+    const seedObj = seedToCanon(foods, vits, mins);
+    seedCanon = seedObj;
+    canon = seedObj;
+
+    setStatus(`✅ SEED import uspešan (${foods.length} foods). Sada Exportuj KANON kao data/NUTRI_STL.json.`, "ok");
+    buildBatch();
+  }catch(e){
+    setStatus("❌ Ne mogu da importujem SEED HTML.\n" + e, "bad");
+  }
+  refreshCounts();
+}
+
+function extractJSArray(html, varName){
+  // finds: const varName = [ ... ];
+  const re = new RegExp("const\\s+" + varName + "\\s*=\\s*\\[", "i");
+  const m = re.exec(html);
+  if(!m) throw new Error("Ne nalazim 'const " + varName + " = [' u HTML-u.");
+  const start = m.index + m[0].length - 1; // position at '['
+  // find matching bracket for array
+  let i = start, depth = 0;
+  for(; i<html.length; i++){
+    const ch = html[i];
+    if (ch === '[') depth++;
+    else if (ch === ']') {
+      depth--;
+      if (depth === 0) { i++; break; }
+    }
+  }
+  const arrText = html.slice(start, i); // includes [ ... ]
+  // Evaluate as JS (local, trusted seed)
+  const fn = new Function("return " + arrText + ";");
+  const arr = fn();
+  if(!Array.isArray(arr)) throw new Error(varName + " nije niz.");
+  return arr;
+}
+
+function seedToCanon(foods, vitamins, minerals){
+  const out = ensureCanonBase(null);
+  out.meta.seed = { type:"NutriTable Pro v2", importedAt: nowISO() };
+
+  // foods
+  out.foods = (foods||[]).map((f)=>{
+    const name = asText(f.name || "");
+    const id = "seed.food." + asText(f.id || slug(name));
+    return {
+      id,
+      uid: null,
+      status: "active",
+      name: { sr: name, en: "" },
+      group: asText(f.group || ""),
+      per_100g: {
+        kcal: numOrNull(f.kcal),
+        kJ: (numOrNull(f.kcal)!=null ? Math.round(numOrNull(f.kcal)*4.184) : null),
+        fat_g: numOrNull(f.fat),
+        sat_fat_g: null,
+        carb_g: numOrNull(f.carb),
+        sugars_g: null,
+        protein_g: numOrNull(f.prot),
+        salt_g: null,
+        fiber_g: null,
+        starch_g: null
+      },
+      gi: numOrNull(f.gi),
+      gl: null,
+      amino_per_100g_protein: {
+        unit: "g/100g_protein",
+        values: isObj(f.amino) ? f.amino : {}
+      },
+      indicators: { color: asText(f.ind || ""), reason: asText(f.tip || ""), ruleset:"seed" },
+      compatibility: { foods: { friends: Array.isArray(f.comp)? f.comp : [], enemies: [] } },
+      tags: [],
+      sources: [{ type:"seed", title:"NutriTable Pro v2 demo", url:"", note:"demo" }]
+    };
+  });
+
+  // vitamins
+  out.vitamins = (vitamins||[]).map((v)=>{
+    const nm = asText(v.name || "");
+    const id = "seed.vit." + slug(nm);
+    return {
+      id,
+      status:"active",
+      name: nm,
+      rda: asText(v.rda || ""),
+      sources_text: asText(v.src || ""),
+      compatibility: {
+        friends: Array.isArray(v.friend)? v.friend : [],
+        enemies: Array.isArray(v.enemy)? v.enemy : []
+      },
+      indicators: { color: asText(v.ind || ""), reason:"", ruleset:"seed" },
+      sources: [{ type:"seed", title:"NutriTable Pro v2 demo", url:"", note:"demo" }]
+    };
+  });
+
+  // minerals
+  out.minerals = (minerals||[]).map((m)=>{
+    const nm = asText(m.name || "");
+    const id = "seed.min." + slug(nm);
+    return {
+      id,
+      status:"active",
+      name: nm,
+      rda: asText(m.rda || ""),
+      sources_text: asText(m.src || ""),
+      compatibility: {
+        friends: Array.isArray(m.friend)? m.friend : [],
+        enemies: Array.isArray(m.enemy)? m.enemy : []
+      },
+      indicators: { color: asText(m.ind || ""), reason:"", ruleset:"seed" },
+      sources: [{ type:"seed", title:"NutriTable Pro v2 demo", url:"", note:"demo" }]
+    };
+  });
+
+  // compatibility library (empty arrays by default)
+  out.compatibility.food_food = [];
+  out.compatibility.vitamin_vitamin = [];
+  out.compatibility.mineral_mineral = [];
+  out.compatibility.nutrient_rules = [];
+
+  return out;
+}
+
+function numOrNull(x){
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+
+/* ---------- batch ---------- */
+function setBatchSize(){
+  const v = Number(document.getElementById("batchSize").value);
+  batchSize = Number.isFinite(v) ? v : 50;
+  refreshCounts();
+}
+function setBatchOffset(){
+  const v = Number(document.getElementById("batchOffset").value);
+  batchOffset = Math.max(0, Number.isFinite(v)? v : 0);
+  refreshCounts();
+}
+function buildBatch(){
+  if(!canon){ currentBatch=[]; renderBatch(); refreshCounts(); return; }
+  const foods = canon.foods || [];
+  batchOffset = Math.max(0, Math.min(batchOffset, Math.max(0, foods.length-1)));
+  document.getElementById("batchOffset").value = batchOffset;
+
+  currentBatch = foods.slice(batchOffset, batchOffset + batchSize);
+  // update cursor
+  canon.meta = canon.meta || {};
+  canon.meta.cursor = canon.meta.cursor || {};
+  canon.meta.cursor.batch_size = batchSize;
+  canon.meta.cursor.offset = batchOffset;
+  canon.meta.cursor.next_cursor = (batchOffset + batchSize < foods.length) ? (batchOffset + batchSize) : null;
+  canon.meta.generatedAt = nowISO();
+
+  renderBatch();
+  refreshCounts();
+  setStatus(`✅ Batch spreman: ${currentBatch.length} stavki (offset=${batchOffset}, size=${batchSize}).`, "ok");
+}
+
+// Re-render batch WITHOUT overwriting current status text (used after merge)
+function refreshBatch(){
+  if(!canon){ currentBatch=[]; renderBatch(); refreshCounts(); return; }
+  const foods = canon.foods || [];
+  batchOffset = Math.max(0, Math.min(batchOffset, Math.max(0, foods.length-1)));
+  document.getElementById("batchOffset").value = batchOffset;
+
+  currentBatch = foods.slice(batchOffset, batchOffset + batchSize);
+
+  // update cursor meta
+  canon.meta = canon.meta || {};
+  canon.meta.cursor = canon.meta.cursor || {};
+  canon.meta.cursor.batch_size = batchSize;
+  canon.meta.cursor.offset = batchOffset;
+  canon.meta.cursor.next_cursor = (batchOffset + batchSize < foods.length) ? (batchOffset + batchSize) : null;
+
+  renderBatch();
+  refreshCounts();
+}
+
+function nextBatch(){
+  if(!canon){ setStatus("Nema kanona.", "warn"); return; }
+  const foods = canon.foods || [];
+  const next = batchOffset + batchSize;
+  if(next >= foods.length){ setStatus("Na kraju si liste.", "warn"); return; }
+  batchOffset = next;
+  document.getElementById("batchOffset").value = batchOffset;
+  buildBatch();
+}
+function prevBatch(){
+  if(!canon){ setStatus("Nema kanona.", "warn"); return; }
+  batchOffset = Math.max(0, batchOffset - batchSize);
+  document.getElementById("batchOffset").value = batchOffset;
+  buildBatch();
+}
+
+/* ---------- prompt generator ---------- */
+function generatePrompt(kind){
+  if(!canon){ setStatus("Učitaj kanon prvo.", "warn"); return; }
+  if(!currentBatch.length) buildBatch();
+
+  let p = "";
+  if(kind==="A"){
+    p = buildPromptA();
+    setStatus("✅ Prompt A generisan (enrich_batch).", "ok");
+  } else if(kind==="B"){
+    p = buildPromptB();
+    setStatus("✅ Prompt B generisan (verify/cite).", "ok");
+  } else if(kind==="C"){
+    p = buildPromptC();
+    setStatus("✅ Prompt C generisan (mealplan).", "ok");
+  } else {
+    setStatus("Nepoznat prompt.", "warn");
+    return;
+  }
+
+  lastPrompt = p;
+  document.getElementById("promptBox").value = p;
+}
+
+function buildPromptA(){
+  const items = currentBatch.map(f=>({
+    id: asText(f.id),
+    name: foodTitle(f),
+    group: asText(f.group||""),
+    known: {
+      per_100g: f.per_100g || null,
+      gi: f.gi ?? null
+    }
+  }));
+
+  // Keep prompt concise but explicit about output format
+  return [
+`SINET NUTRI — PROMPT A (enrich_batch)`,
+`MODE: NOTES_PATCH_JSON`,
+`BATCH: offset=${batchOffset} size=${batchSize} next_cursor=${canon?.meta?.cursor?.next_cursor}`,
+``,
+`Uloga: nutricionista + data-curator. Cilj: dopuniti NUTRI_STL kanon BEZ izmišljanja numerike.`,
+`Pravila:`,
+`1) Ako nemaš pouzdan izvor za broj (kcal/g/mg/µg), ostavi null i navedi šta treba proveriti.`,
+`2) Uvek vrati 'sources[]' za svaku izmenu (FDC/USDA/EFSA/WHO ili drugi pouzdani izvori).`,
+`3) Izlaz MORA biti validan JSON: schema SINET_NUTRI_NOTES_v1.0 (vidi ispod).`,
+``,
+`Traženo (po stavci):`,
+`- Kratak opis (sr), eventualno (en)`,
+`- Mikronutrijenti (vitamini/minerali) po 100g ako dostupno (inače null + napomena)`,
+`- GL (ako može iz GI + carbs) ili null`,
+`- Kompatibilnost: friends/enemies (hrana) + razlog`,
+`- RAG indikatori: 3–7 tagova (npr. "antiinflam", "low_gi", "histamine")`,
+`- Amino (ako nema): dopuni bar EAA profil po 100g proteina ili null`,
+``,
+`SCHEMA (output):`,
+`{`,
+`  "meta": {"schema":"SINET_NUTRI_NOTES_v1.0","createdAt":"${nowISO()}","batch":{"offset":${batchOffset},"size":${batchSize},"next_cursor":${canon?.meta?.cursor?.next_cursor ?? "null"}}},`,
+`  "notes":[`,
+`    {`,
+`      "target":{"type":"food","id":"...","name":"..."},`,
+`      "set":{`,
+`        "description":{"sr":"","en":""},`,
+`        "micros":{"vitamins":{},"minerals":{}},`,
+`        "gl":null,`,
+`        "compatibility":{"foods":{"friends":[],"enemies":[],"reasons":{}}},`,
+`        "rag":{"tags":[],"notes":""},`,
+`        "amino_per_100g_protein":{"unit":"g/100g_protein","values":{}},`,
+`        "todo":[]`,
+`      },`,
+`      "sources":[{"type":"","title":"","url":"","note":""}]`,
+`    }`,
+`  ]`,
+`}`,
+``,
+`BATCH ITEMS (ne menjaj id):`,
+JSON.stringify(items, null, 2)
+].join("\n");
+}
+
+function buildPromptB(){
+  return [
+`SINET NUTRI — PROMPT B (verify/cite)`,
+`MODE: NOTES_PATCH_JSON`,
+`Cilj: proveri postojeće vrednosti u kanonu (kcal, makroi, GI/GL, mikronutrijenti) i dodaj pouzdane izvore.`,
+`Pravila: ne prepisuj bez izvora; ako uočiš konflikt — predloži korekciju i navedi izvor.`,
+`Izlaz: SINET_NUTRI_NOTES_v1.0 JSON (notes[] sa target/set/sources).`,
+``,
+`BATCH: offset=${batchOffset} size=${batchSize}`,
+`Kanon excerpt (foods batch):`,
+JSON.stringify(currentBatch, null, 2)
+].join("\n");
+}
+
+function buildPromptC(){
+  return [
+`SINET NUTRI — PROMPT C (mealplan)`,
+`MODE: MENU_JSON`,
+`Zadatak: predloži 7-dnevni jelovnik koristeći foods iz kanona. Poštuj profil (ako je dat).`,
+`Izlaz JSON:`,
+`{ "profile": {...}, "days":[ {"day":1,"meals":[...]} ], "shopping_list":[...] }`,
+``,
+`(Opcionalno) Profil unesi ovde: age, goal, allergies, macros target.`,
+`Dostupne namirnice (uzorak batch):`,
+JSON.stringify(currentBatch.map(f=>({id:f.id,name:foodTitle(f),group:f.group})), null, 2)
+].join("\n");
+}
+
+async function copyPrompt(){
+  const t = document.getElementById("promptBox").value || "";
+  if(!t){ setStatus("Nema prompta za kopiranje.", "warn"); return; }
+  try{ await navigator.clipboard.writeText(t); setStatus("✅ Prompt kopiran u clipboard.", "ok"); }
+  catch(e){ setStatus("⚠️ Clipboard blokiran — ručno kopiraj iz polja.", "warn"); }
+}
+
+/* ---------- notes template ---------- */
+function makeNotesTemplateForBatch(){
+  const notes = currentBatch.map(f=>({
+    target: { type:"food", id: asText(f.id), name: foodTitle(f) },
+    set: {
+      description: { sr:"", en:"" },
+      micros: { vitamins: {}, minerals: {} },
+      gl: null,
+      compatibility: { foods: { friends: [], enemies: [], reasons: {} } },
+      rag: { tags: [], notes: "" },
+      amino_per_100g_protein: { unit:"g/100g_protein", values: {} },
+      todo: []
+    },
+    sources: [{ type:"", title:"", url:"", note:"" }]
+  }));
+  return {
+    meta: {
+      schema: "SINET_NUTRI_NOTES_v1.0",
+      createdAt: nowISO(),
+      batch: { offset: batchOffset, size: batchSize, next_cursor: canon?.meta?.cursor?.next_cursor ?? null },
+      note: "Template for AI enrichment. Fill only what you can cite."
+    },
+    notes
+  };
+}
+
+function downloadNotesTemplate(){
+  if(!canon){ setStatus("Učitaj kanon prvo.", "warn"); return; }
+  if(!currentBatch.length) buildBatch();
+  const tpl = makeNotesTemplateForBatch();
+  downloadJSON(tpl, `SINET_NUTRI_NOTES_TEMPLATE_offset${batchOffset}_size${batchSize}.json`);
+  setStatus("✅ Notes template preuzet.", "ok");
+}
+
+
+/* ---------- helpers: uid + stub ---------- */
+function fnv1a(str){
+  let h = 0x811c9dc5;
+  for(let i=0;i<str.length;i++){
+    h ^= str.charCodeAt(i);
+    h = (h + ((h<<1) + (h<<4) + (h<<7) + (h<<8) + (h<<24))) >>> 0;
+  }
+  return ("0000000" + h.toString(16)).slice(-8);
+}
+function makeUIDFromId(id){
+  return "nutri_" + fnv1a(String(id||""));
+}
+function makeFoodStub(id, name_sr, group, sourceNote){
+  return {
+    id: String(id||""),
+    uid: makeUIDFromId(id),
+    status: "active",
+    name: { sr: String(name_sr||""), en: "" },
+    group: String(group||""),
+    per_100g: {
+      kcal: null, kJ: null, fat_g: null, sat_fat_g: null, carb_g: null, sugars_g: null,
+      protein_g: null, salt_g: null, fiber_g: null, starch_g: null
+    },
+    gi: null,
+    gl: null,
+    amino_per_100g_protein: null,
+    indicators: { color: "grey", reason: "stub", ruleset: "stub" },
+    compatibility: { foods: { friends: [], enemies: [], reasons: {} } },
+    tags: [],
+    sources: [
+      { type: "seed_list", title: "SINET Batch / Notes write-back", url: "", note: sourceNote||"auto-created stub" }
+    ],
+    description: { sr: "", en: "" }
+  };
+}
+
+/* ---------- import Batch Items (append stubs) ---------- */
+async function importBatchItems(){
+  if(!canon){ setStatus("Učitaj kanon (NUTRI_STL.json) pre Batch Items import-a.", "bad"); return; }
+  const f = document.getElementById("batchItemsFile").files?.[0];
+  if(!f){ setStatus("Izaberi Batch Items JSON fajl.", "bad"); return; }
+
+  let obj;
+  try{
+    obj = JSON.parse(await f.text());
+  }catch(e){
+    setStatus("Ne mogu da parsiram Batch Items JSON.", "bad"); return;
+  }
+  if(!obj || !Array.isArray(obj.items)){
+    setStatus("Batch Items format nije prepoznat (očekujem items[]).", "bad"); return;
+  }
+
+  const existing = new Set((canon.foods||[]).map(x=>x?.id).filter(Boolean));
+  let created = 0, skipped = 0;
+
+  for(const it of obj.items){
+    const id = it?.id;
+    if(!id) continue;
+    if(existing.has(id)){ skipped++; continue; }
+
+    const nm = it?.name_sr || it?.name || "";
+    const grp = it?.group || "";
+    canon.foods.push(makeFoodStub(id, nm, grp, "import_batch_items"));
+    existing.add(id);
+    created++;
+  }
+
+  // meta updates
+  canon.meta = canon.meta || {};
+  canon.meta.generatedAt = new Date().toISOString();
+  canon.meta.cursor = canon.meta.cursor || { batch_size: 150, offset: 0, next_cursor: null };
+
+  canon.meta.changelog = canon.meta.changelog || [];
+  canon.meta.changelog.push({
+    at: new Date().toISOString(),
+    action: "append_batch_items",
+    file: f.name,
+    created,
+    skipped_existing: skipped
+  });
+
+  setStatus(`✅ Batch Items import: dodato ${created}, preskočeno ${skipped} (već postoji). Ne zaboravi Export KANON.`, "ok");
+  refreshBatch();
+}
+
+function setOffsetToBatchB(){
+  batchOffset = 60;
+  document.getElementById("batchOffset").value = String(batchOffset);
+  refreshBatch();
+  setStatus("🎯 Offset postavljen na 60 (Batch B start posle seed 60).", "ok");
+}
+
+
+/* ---------- import notes + merge ---------- */
+async function importNotesAndMerge(){
+  if(!canon){ setStatus("Učitaj kanon prvo.", "bad"); return; }
+  const f = document.getElementById("notesFile").files?.[0];
+  if(!f){ setStatus("Izaberi NOTES patch JSON.", "bad"); return; }
+
+  let obj;
+  try{ obj = JSON.parse(await f.text()); }
+  catch(e){ setStatus("Ne mogu da parsiram NOTES JSON.", "bad"); return; }
+
+  if(!isObj(obj) || !Array.isArray(obj.notes)){
+    setStatus("NOTES format nije prepoznat (očekujem notes[]).", "bad"); return;
+  }
+
+  const autoCreate = !!document.getElementById("autoCreateMissing")?.checked;
+
+  const foods = canon.foods || [];
+  let updated = 0, created = 0, skipped = 0;
+  const missing = [];
+
+  for(const note of obj.notes){
+    const tid = note?.target?.id;
+    if(!tid){ skipped++; continue; }
+
+    let idx = foods.findIndex(x=>x?.id===tid);
+
+    if(idx < 0){
+      if(autoCreate){
+        const nm = note?.target?.name || "";
+        const grp = note?.set?.group || "";
+        foods.push(makeFoodStub(tid, nm, grp, "auto_create_from_notes"));
+        idx = foods.length - 1;
+        created++;
+      }else{
+        skipped++;
+        missing.push({ id: tid, name: note?.target?.name||"" });
+        continue;
+      }
+    }
+
+    foods[idx] = deepMerge(foods[idx], note.set||{});
+
+    // append sources (note.sources) without wiping existing
+    if(Array.isArray(note.sources) && note.sources.length){
+      const cur = Array.isArray(foods[idx].sources) ? foods[idx].sources.slice() : [];
+      for(const s of note.sources){
+        if(!s) continue;
+        const key = JSON.stringify({type:s.type||"", title:s.title||"", url:s.url||""});
+        const has = cur.some(x=>JSON.stringify({type:x?.type||"", title:x?.title||"", url:x?.url||""})===key);
+        if(!has) cur.push(s);
+      }
+      foods[idx].sources = cur;
+    }
+
+    updated++;
+  }
+
+  canon.foods = foods;
+
+  // meta
+  canon.meta = canon.meta || {};
+  canon.meta.generatedAt = new Date().toISOString();
+  canon.meta.changelog = canon.meta.changelog || [];
+  canon.meta.changelog.push({
+    at: new Date().toISOString(),
+    action: "merge_notes_patch",
+    notes_file: f.name,
+    updated,
+    created_count: created,
+    skipped
+  });
+
+  canon.meta.lastMerge = {
+    at: new Date().toISOString(),
+    file: f.name,
+    updated,
+    created,
+    skipped,
+    missing_count: missing.length,
+    missing_sample: missing.slice(0, 10)
+  };
+
+  if(missing.length){
+    setStatus(`⚠️ Merge: updated=${updated}, created=${created}, skipped=${skipped}. Nedostaju target ID-jevi (uzorak): ${missing.slice(0,10).map(x=>x.id).join(", ")}. Uključi Auto-create i ponovi import.`, "warn");
+  }else{
+    setStatus(`✅ Merge OK: updated=${updated}, created=${created}, skipped=${skipped}. Ne zaboravi Export KANON.`, "ok");
+  }
+
+  refreshBatch();
+}
+
+
+/* ---------- export / copy ---------- */
+function exportCanon(){
+  if(!canon){ setStatus("Nema kanona.", "warn"); return; }
+  canon.meta.generatedAt = nowISO();
+  downloadJSON(canon, "NUTRI_STL.json");
+  setStatus("✅ Exportovan KANON (NUTRI_STL.json).", "ok");
+}
+function exportSeedAsCanon(){
+  if(!seedCanon){ setStatus("Nema seed kanona u memoriji. Uvezi seed prvo.", "warn"); return; }
+  seedCanon.meta.generatedAt = nowISO();
+  downloadJSON(seedCanon, "NUTRI_STL_SEED_to_CANON.json");
+  setStatus("✅ Exportovan SEED→KANON.", "ok");
+}
+async function copyCanon(){
+  if(!canon){ setStatus("Nema kanona.", "warn"); return; }
+  try{
+    await navigator.clipboard.writeText(JSON.stringify(canon, null, 2));
+    setStatus("✅ Kanon kopiran u clipboard.", "ok");
+  }catch(e){
+    setStatus("⚠️ Clipboard blokiran — ručno kopiraj iz preview polja.", "warn");
+  }
+}
+function downloadJSON(obj, filename){
+  const blob = new Blob([JSON.stringify(obj, null, 2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function resetState(){
+  canon = null; seedCanon = null; currentBatch = [];
+  document.getElementById("canonBox").value = "";
+  document.getElementById("promptBox").value = "";
+  document.getElementById("batchList").innerHTML = "";
+  setStatus("Očišćeno (memory only).", "ok");
+  refreshCounts();
+}
+
+window.exportSeedAsCanon = function(){
+  if(!seedCanon){ setStatus("Nema seed kanona u memoriji. Uvezi seed prvo.", "warn"); return; }
+  seedCanon.meta.generatedAt = nowISO();
+  downloadJSON(seedCanon, "NUTRI_STL_SEED_to_CANON.json");
+  setStatus("✅ Exportovan SEED→KANON.", "ok");
+};
+
+/* init defaults */
+document.getElementById("batchSize").value = String(batchSize);
+document.getElementById("batchOffset").value = String(batchOffset);
+refreshCounts();
+</script>
+</body>
+</html>
